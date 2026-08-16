@@ -1,0 +1,20 @@
+[package]
+name = "agent-account"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[package.metadata.stellar]
+cargo_inherit = true
+
+[lib]
+crate-type = ["lib", "cdylib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+stellar-accounts = { workspace = true }
+stellar-contract-utils = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

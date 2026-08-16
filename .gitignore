@@ -1,0 +1,11 @@
+/target/
+/.build/
+/.build_account/
+/.build_mcp/
+*.rlib
+*.rmeta
+*.pdb
+*.d
+*.dll
+*.exp
+*.lib

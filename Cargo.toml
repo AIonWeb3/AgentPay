@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = [
+    "contracts/agent-account",
+    "mcp-server",
+]
+
+[workspace.dependencies]
+soroban-sdk = "26.1.1"
+stellar-accounts = "=0.7.2"
+stellar-contract-utils = "=0.7.2"

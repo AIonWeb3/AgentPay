@@ -1,0 +1,26 @@
+[
+  {
+    "id": "weather-oracle",
+    "name": "Weather Oracle",
+    "contract_id": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+    "method": "get_weather",
+    "price": 50,
+    "description": "Real-time weather data oracle. Returns temperature, humidity, and conditions for any location. Updated every 5 minutes from multiple data sources."
+  },
+  {
+    "id": "price-feed",
+    "name": "Crypto Price Feed",
+    "contract_id": "CBQHNAXSI55GX2GN6D67GK7BHVPSLJUGZQEU7WJ5LKR5PNUCGLIMAO4K",
+    "method": "get_price",
+    "price": 100,
+    "description": "Aggregated cryptocurrency price feed. Supports BTC, ETH, XLM, and 50+ tokens. Returns price, 24h change, and volume. Data from 5 major exchanges."
+  },
+  {
+    "id": "ai-inference",
+    "name": "AI Inference Endpoint",
+    "contract_id": "CA7QYNF7SOVZ3SS4KVQNHOACI3BSZAHH7KX4IXOFCPXBZW32PCBHFCLJ",
+    "method": "run_inference",
+    "price": 500,
+    "description": "On-chain AI inference service. Submit prompts for GPT-class text generation. Supports up to 4096 tokens. Response includes inference hash for verification."
+  }
+]
