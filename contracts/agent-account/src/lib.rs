@@ -185,6 +185,12 @@ impl AgentAccountContract {
                     &(Symbol::new(&env, "period"), rule_count),
                     &policy_spec.period_ledgers,
                 );
+                
+                // Store initial last_reset
+                env.storage().persistent().set(
+                    &(Symbol::new(&env, "last_reset"), rule_count),
+                    &env.ledger().sequence(),
+                );
 
                 // Store the contract_id and method
                 env.storage().persistent().set(
@@ -228,9 +234,23 @@ impl AgentAccountContract {
             .get(&(Symbol::new(&env, "spent"), rule_id))
             .unwrap_or(0);
 
-        // TODO: Implement proper rolling-window spend tracking.
-        // For now, simple subtraction.
-        cap - spent
+        let last_reset: u32 = env
+            .storage()
+            .persistent()
+            .get(&(Symbol::new(&env, "last_reset"), rule_id))
+            .unwrap_or(env.ledger().sequence());
+
+        let period: u32 = env
+            .storage()
+            .persistent()
+            .get(&(Symbol::new(&env, "period"), rule_id))
+            .unwrap_or(u32::MAX);
+
+        if env.ledger().sequence() >= last_reset.saturating_add(period) {
+            cap
+        } else {
+            cap - spent
+        }
     }
 
     /// Record a spend against a rule's budget. Called internally during
@@ -267,7 +287,7 @@ impl AgentAccountContract {
             .get(&(Symbol::new(&env, "spend_cap"), rule_id))
             .unwrap_or(0);
 
-        let spent: i128 = env
+        let mut spent: i128 = env
             .storage()
             .persistent()
             .get(&(Symbol::new(&env, "spent"), rule_id))
@@ -279,11 +299,32 @@ impl AgentAccountContract {
             .get(&(Symbol::new(&env, "call_cap"), rule_id))
             .unwrap_or(0);
 
-        let calls: u32 = env
+        let mut calls: u32 = env
             .storage()
             .persistent()
             .get(&(Symbol::new(&env, "calls"), rule_id))
             .unwrap_or(0);
+
+        let last_reset: u32 = env
+            .storage()
+            .persistent()
+            .get(&(Symbol::new(&env, "last_reset"), rule_id))
+            .unwrap_or(env.ledger().sequence());
+
+        let period: u32 = env
+            .storage()
+            .persistent()
+            .get(&(Symbol::new(&env, "period"), rule_id))
+            .unwrap_or(u32::MAX);
+
+        let current_ledger = env.ledger().sequence();
+        let mut new_reset = last_reset;
+
+        if current_ledger >= last_reset.saturating_add(period) {
+            spent = 0;
+            calls = 0;
+            new_reset = current_ledger;
+        }
 
         // Verify the contract_id and method match the rule
         let expected_contract: Option<Address> = env
@@ -329,6 +370,11 @@ impl AgentAccountContract {
         env.storage()
             .persistent()
             .set(&(Symbol::new(&env, "calls"), rule_id), &(calls + 1));
+        if new_reset != last_reset {
+            env.storage()
+                .persistent()
+                .set(&(Symbol::new(&env, "last_reset"), rule_id), &new_reset);
+        }
 
         env.events().publish(
             (Symbol::new(&env, "auth_decision"),),

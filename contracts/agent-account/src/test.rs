@@ -6,7 +6,7 @@
 #![cfg(test)]
 
 use soroban_sdk::{
-    testutils::{Address as _, Events},
+    testutils::{Address as _, Events, Ledger},
     vec, Address, Env, IntoVal, Symbol, Vec,
 };
 
@@ -165,6 +165,47 @@ fn test_cumulative_spending() {
     // Next spend of 4M would push to 11M — denied
     assert!(!client.record_spend(&admin, &1u32, &vendor, &method, &4_000_000i128));
     assert_eq!(client.get_remaining_budget(&1u32), 3_000_000);
+}
+
+// -----------------------------------------------------------------------
+// Test: rolling window periodic reset
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_rolling_window_reset() {
+    let env = Env::default();
+    env.mock_all_auths();
+    
+    // Start at a known ledger sequence
+    env.ledger().set_sequence_number(100);
+
+    let contract_id = env.register(AgentAccountContract, ());
+    let client = AgentAccountContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    let vendor = Address::generate(&env);
+    
+    // Period is 100 ledgers, cap is 100
+    let spec = sample_policy(&env, &vendor, 100, 100);
+    client.apply_policy(&admin, &spec);
+    
+    let method = Symbol::new(&env, "get_data");
+    
+    // Spend 60
+    assert!(client.record_spend(&admin, &1u32, &vendor, &method, &60i128));
+    assert_eq!(client.get_remaining_budget(&1u32), 40);
+    
+    // Spend 50, should be denied (60 + 50 > 100)
+    assert!(!client.record_spend(&admin, &1u32, &vendor, &method, &50i128));
+    
+    // Fast forward ledger beyond the period
+    env.ledger().set_sequence_number(201); // > 100 + 100
+    
+    // The budget should be reset now, so a spend of 80 should succeed
+    assert_eq!(client.get_remaining_budget(&1u32), 100);
+    assert!(client.record_spend(&admin, &1u32, &vendor, &method, &80i128));
+    assert_eq!(client.get_remaining_budget(&1u32), 20);
 }
 
 // -----------------------------------------------------------------------
