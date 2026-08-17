@@ -38,6 +38,11 @@ class AllowedContract(BaseModel):
         ge=0,
         description="Maximum spend in stroops per period for this contract",
     )
+    max_calls_per_period: int = Field(
+        ...,
+        ge=1,
+        description="Maximum number of times this contract can be called per period",
+    )
 
 
 class PolicySpec(BaseModel):
@@ -80,11 +85,13 @@ if __name__ == "__main__":
                 contract_id="CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
                 allowed_methods=[AllowedMethod(name="get_weather")],
                 max_spend_per_period=50_000,
+                max_calls_per_period=100,
             ),
             AllowedContract(
                 contract_id="CBQHNAXSI55GX2GN6D67GK7BHVPSLJUGZQEU7WJ5LKR5PNUCGLIMAO4K",
                 allowed_methods=[AllowedMethod(name="get_price")],
                 max_spend_per_period=100_000,
+                max_calls_per_period=500,
             ),
         ],
         period_ledgers=17280,

@@ -74,7 +74,7 @@ def estimate_period_ledgers(timestamps: List[str]) -> int:
     return max(720, min(ledgers, 120960))
 
 
-def generate_policy(
+def score_transactions(
     tx_log: List[Dict[str, Any]],
     safety_margin: float = 1.5,
     percentile_threshold: float = 95.0,
@@ -82,7 +82,7 @@ def generate_policy(
     """
     Generate a minimal least-privilege PolicySpec from a transaction log.
 
-    # TODO: Swap this heuristic for an LLM summarizer.
+    # TODO: replace with model
     # Interface: takes tx_log, returns PolicySpec. The schema stays the same.
 
     Args:
@@ -112,6 +112,15 @@ def generate_policy(
         if timestamp:
             timestamps.append(timestamp)
 
+    # Estimate the period from timestamp range
+    period_ledgers = estimate_period_ledgers(timestamps)
+
+    # Determine rate limit scaling factor
+    dts = sorted(datetime.fromisoformat(ts.replace("Z", "+00:00")) for ts in timestamps) if timestamps else []
+    span_seconds = (dts[-1] - dts[0]).total_seconds() if len(dts) >= 2 else 0
+    span_ledgers = max(1, int(span_seconds / 5.0))
+    rate_multiplier = (period_ledgers / span_ledgers) if span_ledgers > 0 else 1.0
+
     # Build the allowed contracts list
     allowed_contracts: List[AllowedContract] = []
 
@@ -123,6 +132,10 @@ def generate_policy(
         # Ensure minimum cap of 1 stroop
         cap = max(cap, 1)
 
+        # Compute max calls per period: observed calls × rate_multiplier × safety_margin
+        base_calls = len(data["amounts"])
+        max_calls = max(1, int(base_calls * rate_multiplier * safety_margin))
+
         allowed_contracts.append(
             AllowedContract(
                 contract_id=contract_id,
@@ -130,14 +143,12 @@ def generate_policy(
                     AllowedMethod(name=m) for m in sorted(data["methods"])
                 ],
                 max_spend_per_period=cap,
+                max_calls_per_period=max_calls,
             )
         )
 
     # Sort by contract_id for deterministic output
     allowed_contracts.sort(key=lambda c: c.contract_id)
-
-    # Estimate the period from timestamp range
-    period_ledgers = estimate_period_ledgers(timestamps)
 
     return PolicySpec(
         allowed_contracts=allowed_contracts,
@@ -166,7 +177,7 @@ def main() -> None:
     else:
         tx_log = json.load(sys.stdin)
 
-    policy = generate_policy(tx_log)
+    policy = score_transactions(tx_log)
     print(policy.model_dump_json(indent=2))
 
 
