@@ -83,7 +83,8 @@ fn test_authorized_call_under_cap() {
     client.apply_policy(&admin, &spec);
 
     // Record a spend of 5,000,000 (under the 10,000,000 cap)
-    let approved = client.record_spend(&admin, &1u32, &5_000_000i128);
+    let method = Symbol::new(&env, "get_data");
+    let approved = client.record_spend(&admin, &1u32, &vendor, &method, &5_000_000i128);
     assert!(approved);
 
     // Remaining budget should be 5,000,000
@@ -106,7 +107,8 @@ fn test_denied_call_over_cap() {
     client.apply_policy(&admin, &spec);
 
     // Try to spend 15,000,000 (over the 10,000,000 cap)
-    let approved = client.record_spend(&admin, &1u32, &15_000_000i128);
+    let method = Symbol::new(&env, "get_data");
+    let approved = client.record_spend(&admin, &1u32, &vendor, &method, &15_000_000i128);
     assert!(!approved, "Expected spend over cap to be denied");
 
     // Remaining budget should still be full (spend was rejected)
@@ -155,12 +157,13 @@ fn test_cumulative_spending() {
     client.apply_policy(&admin, &spec);
 
     // Spend 3M, then 4M (total 7M, under 10M cap)
-    assert!(client.record_spend(&admin, &1u32, &3_000_000i128));
-    assert!(client.record_spend(&admin, &1u32, &4_000_000i128));
+    let method = Symbol::new(&env, "get_data");
+    assert!(client.record_spend(&admin, &1u32, &vendor, &method, &3_000_000i128));
+    assert!(client.record_spend(&admin, &1u32, &vendor, &method, &4_000_000i128));
     assert_eq!(client.get_remaining_budget(&1u32), 3_000_000);
 
     // Next spend of 4M would push to 11M — denied
-    assert!(!client.record_spend(&admin, &1u32, &4_000_000i128));
+    assert!(!client.record_spend(&admin, &1u32, &vendor, &method, &4_000_000i128));
     assert_eq!(client.get_remaining_budget(&1u32), 3_000_000);
 }
 
@@ -189,10 +192,59 @@ fn test_denied_call_over_rate_limit() {
     
     client.apply_policy(&admin, &spec);
 
+    let method = Symbol::new(&env, "get_data");
     // First call works
-    assert!(client.record_spend(&admin, &1u32, &100i128));
+    assert!(client.record_spend(&admin, &1u32, &vendor, &method, &100i128));
     // Second call works
-    assert!(client.record_spend(&admin, &1u32, &100i128));
+    assert!(client.record_spend(&admin, &1u32, &vendor, &method, &100i128));
     // Third call should fail due to rate limit, even though under spend cap
-    assert!(!client.record_spend(&admin, &1u32, &100i128));
+    assert!(!client.record_spend(&admin, &1u32, &vendor, &method, &100i128));
+}
+
+// -----------------------------------------------------------------------
+// Test: context-rule scoping per vendor
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_scoping_per_vendor() {
+    let (env, client, admin) = setup();
+    let vendor_a = Address::generate(&env);
+    let vendor_b = Address::generate(&env);
+
+    let method_a = Symbol::new(&env, "get_data_a");
+    let method_b = Symbol::new(&env, "get_data_b");
+
+    let mut contracts: Vec<AllowedContract> = Vec::new(&env);
+    contracts.push_back(AllowedContract {
+        contract_id: vendor_a.clone(),
+        allowed_methods: vec![&env, method_a.clone()],
+        max_spend_per_period: 10_000_000,
+        max_calls_per_period: 100,
+    });
+    contracts.push_back(AllowedContract {
+        contract_id: vendor_b.clone(),
+        allowed_methods: vec![&env, method_b.clone()],
+        max_spend_per_period: 5_000_000,
+        max_calls_per_period: 100,
+    });
+
+    let spec = PolicySpec {
+        allowed_contracts: contracts,
+        period_ledgers: 17280,
+    };
+
+    client.apply_policy(&admin, &spec);
+
+    // Rule 1 is vendor A, Rule 2 is vendor B
+    assert_eq!(client.get_rule_count(), 2);
+
+    // A call against Vendor A's rule (rule 1) using Vendor B's contract ID should fail
+    // even though the amount is well within the cap (100 < 10M)
+    assert!(!client.record_spend(&admin, &1u32, &vendor_b, &method_a, &100i128));
+
+    // A call against Vendor A's rule using Vendor A's contract but Vendor B's method should fail
+    assert!(!client.record_spend(&admin, &1u32, &vendor_a, &method_b, &100i128));
+
+    // A proper call to Vendor A works
+    assert!(client.record_spend(&admin, &1u32, &vendor_a, &method_a, &100i128));
 }

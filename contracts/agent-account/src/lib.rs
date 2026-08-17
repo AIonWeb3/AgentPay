@@ -132,62 +132,76 @@ impl AgentAccountContract {
             .get(&DataKey::RuleCount)
             .unwrap_or(0u32);
 
-        // Install one context rule per allowed contract
+        // Install one context rule per (contract, method) pair
         for i in 0..policy_spec.allowed_contracts.len() {
             let allowed: AllowedContract = policy_spec.allowed_contracts.get(i).unwrap();
 
-            // Build the context rule scoped to this contract
-            let context_type = ContextRuleType::CallContract(allowed.contract_id.clone());
+            for j in 0..allowed.allowed_methods.len() {
+                let method = allowed.allowed_methods.get(j).unwrap();
 
-            // The signers list: the admin is the sole delegated signer
-            let mut signers: Vec<Signer> = Vec::new(&env);
-            signers.push_back(Signer::Delegated(admin.clone()));
+                // Build the context rule scoped to this contract
+                let context_type = ContextRuleType::CallContract(allowed.contract_id.clone());
 
-            // Policies map: keyed by policy contract address → install params
-            // TODO: Deploy the SpendingLimitPolicy contract and add it here.
-            // For now, we record the spend cap in contract storage directly
-            // so the skeleton is functional without a live policy contract.
-            let policies: Map<Address, Val> = Map::new(&env);
+                // The signers list: the admin is the sole delegated signer
+                let mut signers: Vec<Signer> = Vec::new(&env);
+                signers.push_back(Signer::Delegated(admin.clone()));
 
-            let rule_name = String::from_str(
-                &env,
-                &"agent_rule",
-            );
+                // Policies map: keyed by policy contract address → install params
+                // TODO: Deploy the SpendingLimitPolicy contract and add it here.
+                // For now, we record the spend cap in contract storage directly
+                // so the skeleton is functional without a live policy contract.
+                let policies: Map<Address, Val> = Map::new(&env);
 
-            // Store the rule via the smart account framework
-            add_context_rule(
-                &env,
-                &context_type,
-                &rule_name,
-                None,
-                &signers,
-                &policies,
-            );
-            rule_count += 1;
+                let rule_name = String::from_str(
+                    &env,
+                    &"agent_rule",
+                );
 
-            // Store the spend cap for this rule in our own storage so
-            // `get_remaining_budget` can read it.
-            // Key: ("spend_cap", rule_id) → max_spend_per_period
-            env.storage().persistent().set(
-                &(Symbol::new(&env, "spend_cap"), rule_count),
-                &allowed.max_spend_per_period,
-            );
-            // Store the call cap
-            env.storage().persistent().set(
-                &(Symbol::new(&env, "call_cap"), rule_count),
-                &allowed.max_calls_per_period,
-            );
-            // Store period ledgers
-            env.storage().persistent().set(
-                &(Symbol::new(&env, "period"), rule_count),
-                &policy_spec.period_ledgers,
-            );
+                // Store the rule via the smart account framework
+                add_context_rule(
+                    &env,
+                    &context_type,
+                    &rule_name,
+                    None,
+                    &signers,
+                    &policies,
+                );
+                rule_count += 1;
 
-            // Emit event: policy applied for this contract
-            env.events().publish(
-                (Symbol::new(&env, "policy_applied"),),
-                (allowed.contract_id, allowed.max_spend_per_period),
-            );
+                // Store the spend cap for this rule in our own storage so
+                // `get_remaining_budget` can read it.
+                // Key: ("spend_cap", rule_id) → max_spend_per_period
+                env.storage().persistent().set(
+                    &(Symbol::new(&env, "spend_cap"), rule_count),
+                    &allowed.max_spend_per_period,
+                );
+                // Store the call cap
+                env.storage().persistent().set(
+                    &(Symbol::new(&env, "call_cap"), rule_count),
+                    &allowed.max_calls_per_period,
+                );
+                // Store period ledgers
+                env.storage().persistent().set(
+                    &(Symbol::new(&env, "period"), rule_count),
+                    &policy_spec.period_ledgers,
+                );
+
+                // Store the contract_id and method
+                env.storage().persistent().set(
+                    &(Symbol::new(&env, "contract"), rule_count),
+                    &allowed.contract_id,
+                );
+                env.storage().persistent().set(
+                    &(Symbol::new(&env, "method"), rule_count),
+                    &method,
+                );
+
+                // Emit event: policy applied for this method
+                env.events().publish(
+                    (Symbol::new(&env, "policy_applied"),),
+                    (allowed.contract_id.clone(), method, allowed.max_spend_per_period),
+                );
+            }
         }
 
         env.storage().instance().set(&DataKey::RuleCount, &rule_count);
@@ -224,11 +238,13 @@ impl AgentAccountContract {
     ///
     /// # Arguments
     /// * `rule_id` - The context rule ID.
+    /// * `contract_id` - The contract being called.
+    /// * `method` - The method being called.
     /// * `amount` - The spend amount in stroops.
     ///
     /// # Returns
-    /// `true` if the spend was within budget, `false` if denied.
-    pub fn record_spend(env: Env, admin: Address, rule_id: u32, amount: i128) -> bool {
+    /// `true` if the spend was within budget and context matched, `false` if denied.
+    pub fn record_spend(env: Env, admin: Address, rule_id: u32, contract_id: Address, method: Symbol, amount: i128) -> bool {
         // Only admin can record spends (in production, this would be
         // called by the policy contract during enforcement)
         let stored_admin: Address = env
@@ -268,6 +284,25 @@ impl AgentAccountContract {
             .persistent()
             .get(&(Symbol::new(&env, "calls"), rule_id))
             .unwrap_or(0);
+
+        // Verify the contract_id and method match the rule
+        let expected_contract: Option<Address> = env
+            .storage()
+            .persistent()
+            .get(&(Symbol::new(&env, "contract"), rule_id));
+        
+        let expected_method: Option<Symbol> = env
+            .storage()
+            .persistent()
+            .get(&(Symbol::new(&env, "method"), rule_id));
+
+        if expected_contract != Some(contract_id) || expected_method != Some(method) {
+            env.events().publish(
+                (Symbol::new(&env, "auth_decision"),),
+                (Symbol::new(&env, "denied"), Symbol::new(&env, "invalid_context"), amount),
+            );
+            return false;
+        }
 
         if calls + 1 > call_cap {
             // Denied: over rate limit
