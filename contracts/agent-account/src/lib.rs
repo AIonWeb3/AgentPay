@@ -172,6 +172,11 @@ impl AgentAccountContract {
                 &(Symbol::new(&env, "spend_cap"), rule_count),
                 &allowed.max_spend_per_period,
             );
+            // Store the call cap
+            env.storage().persistent().set(
+                &(Symbol::new(&env, "call_cap"), rule_count),
+                &allowed.max_calls_per_period,
+            );
             // Store period ledgers
             env.storage().persistent().set(
                 &(Symbol::new(&env, "period"), rule_count),
@@ -252,6 +257,27 @@ impl AgentAccountContract {
             .get(&(Symbol::new(&env, "spent"), rule_id))
             .unwrap_or(0);
 
+        let call_cap: u32 = env
+            .storage()
+            .persistent()
+            .get(&(Symbol::new(&env, "call_cap"), rule_id))
+            .unwrap_or(0);
+
+        let calls: u32 = env
+            .storage()
+            .persistent()
+            .get(&(Symbol::new(&env, "calls"), rule_id))
+            .unwrap_or(0);
+
+        if calls + 1 > call_cap {
+            // Denied: over rate limit
+            env.events().publish(
+                (Symbol::new(&env, "auth_decision"),),
+                (Symbol::new(&env, "denied"), Symbol::new(&env, "rate_limited"), amount),
+            );
+            return false;
+        }
+
         if spent + amount > cap {
             // Denied: over budget
             env.events().publish(
@@ -261,10 +287,13 @@ impl AgentAccountContract {
             return false;
         }
 
-        // Approved: record the spend
+        // Approved: record the spend and the call
         env.storage()
             .persistent()
             .set(&(Symbol::new(&env, "spent"), rule_id), &(spent + amount));
+        env.storage()
+            .persistent()
+            .set(&(Symbol::new(&env, "calls"), rule_id), &(calls + 1));
 
         env.events().publish(
             (Symbol::new(&env, "auth_decision"),),

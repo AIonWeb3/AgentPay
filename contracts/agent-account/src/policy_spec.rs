@@ -20,6 +20,8 @@ pub struct AllowedContract {
     pub allowed_methods: Vec<Symbol>,
     /// Maximum spend (in stroops) allowed per period for this contract.
     pub max_spend_per_period: i128,
+    /// Maximum number of calls allowed per period for this contract.
+    pub max_calls_per_period: u32,
 }
 
 /// Top-level policy specification produced by the policy generator

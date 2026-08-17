@@ -38,6 +38,7 @@ fn sample_policy(env: &Env, vendor: &Address, cap: i128, period: u32) -> PolicyS
         contract_id: vendor.clone(),
         allowed_methods: methods,
         max_spend_per_period: cap,
+        max_calls_per_period: 100, // Default call limit for tests
     };
 
     let mut contracts: Vec<AllowedContract> = Vec::new(env);
@@ -161,4 +162,37 @@ fn test_cumulative_spending() {
     // Next spend of 4M would push to 11M — denied
     assert!(!client.record_spend(&admin, &1u32, &4_000_000i128));
     assert_eq!(client.get_remaining_budget(&1u32), 3_000_000);
+}
+
+// -----------------------------------------------------------------------
+// Test: denied call over the rate limit
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_denied_call_over_rate_limit() {
+    let (env, client, admin) = setup();
+    let vendor = Address::generate(&env);
+
+    let mut spec = sample_policy(&env, &vendor, 10_000_000, 17280);
+    // Overwrite the default 100 call limit to 2 for this test
+    let mut methods: Vec<Symbol> = Vec::new(&env);
+    methods.push_back(Symbol::new(&env, "get_data"));
+    
+    let mut contracts: Vec<AllowedContract> = Vec::new(&env);
+    contracts.push_back(AllowedContract {
+        contract_id: vendor.clone(),
+        allowed_methods: methods,
+        max_spend_per_period: 10_000_000,
+        max_calls_per_period: 2,
+    });
+    spec.allowed_contracts = contracts;
+    
+    client.apply_policy(&admin, &spec);
+
+    // First call works
+    assert!(client.record_spend(&admin, &1u32, &100i128));
+    // Second call works
+    assert!(client.record_spend(&admin, &1u32, &100i128));
+    // Third call should fail due to rate limit, even though under spend cap
+    assert!(!client.record_spend(&admin, &1u32, &100i128));
 }
