@@ -171,3 +171,47 @@ def list_audit(conn: sqlite3.Connection, session_id: str, limit: int = 40) -> li
     ).fetchall()
 
 
+def upsert_resource(
+    conn: sqlite3.Connection,
+    *,
+    id: str,
+    name: str,
+    contract_id: str,
+    method: str,
+    price: int,
+    description: str,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO resources (id, name, contract_id, method, price, description)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            contract_id = excluded.contract_id,
+            method = excluded.method,
+            price = excluded.price,
+            description = excluded.description
+        """,
+        (id, name, contract_id, method, price, description),
+    )
+    conn.commit()
+
+
+def import_registry(conn: sqlite3.Connection, resources: list[dict]) -> None:
+    for resource in resources:
+        upsert_resource(
+            conn,
+            id=resource["id"],
+            name=resource["name"],
+            contract_id=resource["contract_id"],
+            method=resource["method"],
+            price=int(resource["price"]),
+            description=resource.get("description", ""),
+        )
+
+
+def list_resources(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute("SELECT * FROM resources ORDER BY id").fetchall()
+
+
+

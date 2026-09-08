@@ -13,10 +13,12 @@ from typing import Any
 from store import (
     clear_audit,
     connect,
+    import_registry,
     insert_audit,
     insert_policy,
     insert_session,
     list_audit,
+    list_resources,
     migrate,
 )
 
@@ -110,6 +112,9 @@ class AgentPayEngine:
             self.conn = connect(db_path)
             migrate(self.conn)
         self.resources: list[dict[str, Any]] = json.loads(REGISTRY_PATH.read_text())
+        if self.conn is not None:
+            import_registry(self.conn, self.resources)
+            self.resources = [dict(row) for row in list_resources(self.conn)]
         self.state = AccountState()
         self.reset_demo()
 
