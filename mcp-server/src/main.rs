@@ -10,6 +10,7 @@
 //! Runs over stdio transport for local agent-runtime use.
 
 mod account_state;
+mod policy;
 mod soroban_client;
 mod tools;
 
