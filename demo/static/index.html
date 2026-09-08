@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AgentPay — Agent spending, on-chain</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <div class="mark">AP</div>
+        <div>
+          <h1>AgentPay</h1>
+          <p>Least-privilege spending for AI agents on Stellar</p>
+        </div>
+      </div>
+      <div class="top-meta">
+        <span class="pill live">Soroban testnet simulation</span>
+        <span class="pill" id="ledger">ledger —</span>
+        <button id="reset">Reset</button>
+        <button id="pitch" class="primary">Run pitch demo</button>
+      </div>
+    </header>
+
+    <section class="script" id="script">
+      Ready. Press <strong>Run pitch demo</strong> and narrate: discover → policy → budget → pay → deny.
+    </section>
+
+    <main class="grid">
+      <section class="panel">
+        <h2>Agent runtime <span>MCP tools</span></h2>
+        <div class="tools">
+          <label>
+            Query
+            <input id="query" value="weather" />
+          </label>
+          <button id="discover">discover_resources</button>
+          <button id="budget-btn">check_budget</button>
+        </div>
+        <div class="resource-actions">
+          <button data-pay="weather-oracle">pay_and_call weather</button>
+          <button data-pay="price-feed">pay_and_call price</button>
+          <button data-pay="ai-inference">pay_and_call inference</button>
+        </div>
+        <div class="console" id="console"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Generated policy <span>p95 × 1.5, allowlist only</span></h2>
+        <div id="policy" class="cards"></div>
+        <h2 class="sub">Marketplace</h2>
+        <div id="market" class="cards"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Smart account <span>context rules + spend caps</span></h2>
+        <div class="budget-hero">
+          <div>
+            <small>Remaining this period</small>
+            <strong id="remain">—</strong>
+          </div>
+          <div>
+            <small>Rules</small>
+            <strong id="rules">—</strong>
+          </div>
+        </div>
+        <div id="bars"></div>
+        <h2 class="sub">auth_decision events</h2>
+        <div class="audit" id="audit"></div>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
