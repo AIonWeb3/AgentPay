@@ -33,15 +33,26 @@ def insert_session(
     *,
     ledger: int = 12_400_000,
     period_ledgers: int = 17_280,
+    pitch_step: int = 0,
+    role: str = "operator",
 ) -> None:
     conn.execute(
         """
-        INSERT INTO sessions (id, ledger, period_ledgers)
-        VALUES (?, ?, ?)
+        INSERT INTO sessions (id, ledger, period_ledgers, pitch_step, role)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            ledger = excluded.ledger,
+            period_ledgers = excluded.period_ledgers,
+            pitch_step = excluded.pitch_step,
+            role = excluded.role
         """,
-        (session_id, ledger, period_ledgers),
+        (session_id, ledger, period_ledgers, pitch_step, role),
     )
     conn.commit()
+
+
+def get_session(conn: sqlite3.Connection, session_id: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
 
 
 def insert_policy(

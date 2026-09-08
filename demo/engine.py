@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from store import connect, insert_session, migrate
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "policy-generator"))
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -89,10 +91,29 @@ class AccountState:
 
 
 class AgentPayEngine:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        db_path: str | Path | None = None,
+        session_id: str = "demo",
+    ) -> None:
+        self.session_id = session_id
+        self.conn = None
+        if db_path is not None:
+            self.conn = connect(db_path)
+            migrate(self.conn)
         self.resources: list[dict[str, Any]] = json.loads(REGISTRY_PATH.read_text())
         self.state = AccountState()
         self.reset_demo()
+
+    def _persist_session(self) -> None:
+        if self.conn is None:
+            return
+        insert_session(
+            self.conn,
+            self.session_id,
+            ledger=self.state.ledger,
+            period_ledgers=self.state.period_ledgers,
+        )
 
     def reset_demo(self) -> dict[str, Any]:
         self.state = AccountState()
@@ -124,6 +145,7 @@ class AgentPayEngine:
                 )
             )
         self._audit("applied", "policy_installed", "", 0, self.total_remaining())
+        self._persist_session()
         return self.snapshot()
 
     def snapshot(self) -> dict[str, Any]:
