@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from policy_eval import evaluate_call
 from store import (
     clear_audit,
     clear_rules,
@@ -238,18 +239,26 @@ class AgentPayEngine:
 
         amount = int(resource["price"])
         remaining = rule.max_spend_per_period - rule.spent
-        if rule.calls + 1 > rule.max_calls_per_period:
+        decision = evaluate_call(
+            allowlisted=True,
+            amount=amount,
+            spent=rule.spent,
+            max_spend=rule.max_spend_per_period,
+            calls=rule.calls,
+            max_calls=rule.max_calls_per_period,
+        )
+        if not decision.ok and decision.error == "PolicyDenied" and "rate" in decision.reason:
             self._audit("denied", "rate_limited", resource_id, amount, remaining)
             return {
                 "ok": False,
-                "error": "PolicyDenied",
-                "reason": f"rate limited: {rule.calls}/{rule.max_calls_per_period} calls this period",
+                "error": decision.error,
+                "reason": decision.reason,
             }
-        if rule.spent + amount > rule.max_spend_per_period:
+        if not decision.ok and decision.error == "InsufficientBudget":
             self._audit("denied", "over_budget", resource_id, amount, remaining)
             return {
                 "ok": False,
-                "error": "InsufficientBudget",
+                "error": decision.error,
                 "reason": (
                     f"required {amount} stroops, remaining {remaining} stroops "
                     f"on {rule.name}"
