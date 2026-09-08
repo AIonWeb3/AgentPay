@@ -130,6 +130,31 @@ def list_rules(conn: sqlite3.Connection, session_id: str) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def clear_rules(conn: sqlite3.Connection, session_id: str) -> None:
+    conn.execute("DELETE FROM rules WHERE session_id = ?", (session_id,))
+    conn.commit()
+
+
+def update_rule_window(
+    conn: sqlite3.Connection,
+    session_id: str,
+    resource_id: str,
+    *,
+    spent: int,
+    calls: int,
+    last_reset: int,
+) -> None:
+    conn.execute(
+        """
+        UPDATE rules
+        SET spent = ?, calls = ?, last_reset = ?
+        WHERE session_id = ? AND resource_id = ?
+        """,
+        (spent, calls, last_reset, session_id, resource_id),
+    )
+    conn.commit()
+
+
 def clear_audit(conn: sqlite3.Connection, session_id: str) -> None:
     conn.execute("DELETE FROM audit_events WHERE session_id = ?", (session_id,))
     conn.commit()

@@ -12,14 +12,17 @@ from typing import Any
 
 from store import (
     clear_audit,
+    clear_rules,
     connect,
     import_registry,
     insert_audit,
     insert_policy,
+    insert_rule,
     insert_session,
     list_audit,
     list_resources,
     migrate,
+    update_rule_window,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -143,23 +146,40 @@ class AgentPayEngine:
         self.state.generated_at = spec.generated_at
 
         by_contract = {c.contract_id: c for c in spec.allowed_contracts}
+        if self.conn is not None:
+            clear_rules(self.conn, self.session_id)
         for i, resource in enumerate(self.resources, start=1):
             contract = by_contract.get(resource["contract_id"])
             if not contract:
                 continue
-            self.state.rules.append(
-                RuleState(
-                    rule_id=i,
-                    resource_id=resource["id"],
-                    contract_id=resource["contract_id"],
-                    method=resource["method"],
-                    name=resource["name"],
-                    price=int(resource["price"]),
-                    max_spend_per_period=contract.max_spend_per_period,
-                    max_calls_per_period=contract.max_calls_per_period,
-                    last_reset=self.state.ledger,
-                )
+            rule = RuleState(
+                rule_id=i,
+                resource_id=resource["id"],
+                contract_id=resource["contract_id"],
+                method=resource["method"],
+                name=resource["name"],
+                price=int(resource["price"]),
+                max_spend_per_period=contract.max_spend_per_period,
+                max_calls_per_period=contract.max_calls_per_period,
+                last_reset=self.state.ledger,
             )
+            self.state.rules.append(rule)
+            if self.conn is not None:
+                insert_rule(
+                    self.conn,
+                    rule_id=rule.rule_id,
+                    session_id=self.session_id,
+                    resource_id=rule.resource_id,
+                    contract_id=rule.contract_id,
+                    method=rule.method,
+                    name=rule.name,
+                    price=rule.price,
+                    max_spend_per_period=rule.max_spend_per_period,
+                    max_calls_per_period=rule.max_calls_per_period,
+                    spent=rule.spent,
+                    calls=rule.calls,
+                    last_reset=rule.last_reset,
+                )
         self._audit("applied", "policy_installed", "", 0, self.total_remaining())
         self._persist_session()
         if self.conn is not None:
@@ -241,6 +261,15 @@ class AgentPayEngine:
         self.state.ledger += 1
         rule.spent += amount
         rule.calls += 1
+        if self.conn is not None:
+            update_rule_window(
+                self.conn,
+                self.session_id,
+                resource_id,
+                spent=rule.spent,
+                calls=rule.calls,
+                last_reset=rule.last_reset,
+            )
         tx_hash = _tx_hash(f"{self.state.ledger}:{resource_id}:{rule.spent}")
         payload = dict(RESOURCE_RESPONSES.get(resource_id, {"status": "ok"}))
         payload["params"] = json.loads(params) if params.strip() else {}
