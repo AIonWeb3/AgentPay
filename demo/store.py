@@ -25,3 +25,96 @@ def migrate(conn: sqlite3.Connection) -> None:
         "INSERT OR IGNORE INTO schema_migrations (id, name) VALUES (1, 'initial')"
     )
     conn.commit()
+
+
+def insert_session(
+    conn: sqlite3.Connection,
+    session_id: str,
+    *,
+    ledger: int = 12_400_000,
+    period_ledgers: int = 17_280,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO sessions (id, ledger, period_ledgers)
+        VALUES (?, ?, ?)
+        """,
+        (session_id, ledger, period_ledgers),
+    )
+    conn.commit()
+
+
+def insert_policy(
+    conn: sqlite3.Connection,
+    session_id: str,
+    spec_json: str,
+    *,
+    source_tx_count: int,
+    period_ledgers: int,
+    generated_at: str | None,
+) -> int:
+    cur = conn.execute(
+        """
+        INSERT INTO policies (session_id, spec_json, source_tx_count, period_ledgers, generated_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (session_id, spec_json, source_tx_count, period_ledgers, generated_at),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def get_policy(conn: sqlite3.Connection, session_id: str) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM policies WHERE session_id = ? ORDER BY id DESC LIMIT 1",
+        (session_id,),
+    ).fetchone()
+
+
+def insert_rule(
+    conn: sqlite3.Connection,
+    *,
+    rule_id: int,
+    session_id: str,
+    resource_id: str,
+    contract_id: str,
+    method: str,
+    name: str,
+    price: int,
+    max_spend_per_period: int,
+    max_calls_per_period: int,
+    spent: int = 0,
+    calls: int = 0,
+    last_reset: int = 0,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO rules (
+            rule_id, session_id, resource_id, contract_id, method, name, price,
+            max_spend_per_period, max_calls_per_period, spent, calls, last_reset
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            rule_id,
+            session_id,
+            resource_id,
+            contract_id,
+            method,
+            name,
+            price,
+            max_spend_per_period,
+            max_calls_per_period,
+            spent,
+            calls,
+            last_reset,
+        ),
+    )
+    conn.commit()
+
+
+def list_rules(conn: sqlite3.Connection, session_id: str) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM rules WHERE session_id = ? ORDER BY rule_id",
+        (session_id,),
+    ).fetchall()
+
