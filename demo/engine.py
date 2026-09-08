@@ -14,6 +14,7 @@ from store import (
     clear_audit,
     connect,
     insert_audit,
+    insert_policy,
     insert_session,
     list_audit,
     migrate,
@@ -156,6 +157,15 @@ class AgentPayEngine:
             )
         self._audit("applied", "policy_installed", "", 0, self.total_remaining())
         self._persist_session()
+        if self.conn is not None:
+            insert_policy(
+                self.conn,
+                self.session_id,
+                spec.model_dump_json(),
+                source_tx_count=spec.source_tx_count,
+                period_ledgers=spec.period_ledgers,
+                generated_at=spec.generated_at,
+            )
         return self.snapshot()
 
     def snapshot(self) -> dict[str, Any]:
