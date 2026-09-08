@@ -8,11 +8,15 @@ function log(text, cls = "") {
   consoleEl.prepend(line);
 }
 
-async function api(path, opts) {
-  const res = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...opts,
-  });
+const API_KEY = "dev-operator-key";
+
+async function api(path, opts = {}) {
+  const headers = {
+    "Content-Type": "application/json",
+    "X-Api-Key": API_KEY,
+    ...(opts.headers || {}),
+  };
+  const res = await fetch(path, { ...opts, headers });
   const data = await res.json();
   if (!res.ok) throw new Error(data.detail || "request failed");
   return data;

@@ -1,0 +1,20 @@
+[
+  {
+    "contract_id": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+    "method": "get_weather",
+    "amount": 50,
+    "timestamp": "2026-01-01T00:00:00Z"
+  },
+  {
+    "contract_id": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+    "method": "get_weather",
+    "amount": 52,
+    "timestamp": "2026-01-01T01:00:00Z"
+  },
+  {
+    "contract_id": "CBQHNAXSI55GX2GN6D67GK7BHVPSLJUGZQEU7WJ5LKR5PNUCGLIMAO4K",
+    "method": "get_price",
+    "amount": 100,
+    "timestamp": "2026-01-01T02:00:00Z"
+  }
+]

@@ -20,8 +20,7 @@ from __future__ import annotations
 import json
 import random
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
-
+from typing import Any, Dict, List
 
 # ---------------------------------------------------------------------------
 # Resource definitions (matching registry/resources.json)

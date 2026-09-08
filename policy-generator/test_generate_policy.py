@@ -1,7 +1,7 @@
-import pytest
 from datetime import datetime, timedelta, timezone
 
 from generate_policy import score_transactions
+
 
 def test_score_transactions_outlier():
     base_time = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)

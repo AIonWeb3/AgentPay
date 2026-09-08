@@ -54,10 +54,7 @@ mod tests {
     #[test]
     fn test_search_resources() {
         let results = search_resources("weather");
-        assert!(
-            !results.is_empty(),
-            "Should find weather resource"
-        );
+        assert!(!results.is_empty(), "Should find weather resource");
     }
 
     #[test]

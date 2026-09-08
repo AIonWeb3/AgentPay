@@ -152,20 +152,10 @@ impl AgentAccountContract {
                 // so the skeleton is functional without a live policy contract.
                 let policies: Map<Address, Val> = Map::new(&env);
 
-                let rule_name = String::from_str(
-                    &env,
-                    &"agent_rule",
-                );
+                let rule_name = String::from_str(&env, &"agent_rule");
 
                 // Store the rule via the smart account framework
-                add_context_rule(
-                    &env,
-                    &context_type,
-                    &rule_name,
-                    None,
-                    &signers,
-                    &policies,
-                );
+                add_context_rule(&env, &context_type, &rule_name, None, &signers, &policies);
                 rule_count += 1;
 
                 // Store the spend cap for this rule in our own storage so
@@ -185,7 +175,7 @@ impl AgentAccountContract {
                     &(Symbol::new(&env, "period"), rule_count),
                     &policy_spec.period_ledgers,
                 );
-                
+
                 // Store initial last_reset
                 env.storage().persistent().set(
                     &(Symbol::new(&env, "last_reset"), rule_count),
@@ -197,20 +187,25 @@ impl AgentAccountContract {
                     &(Symbol::new(&env, "contract"), rule_count),
                     &allowed.contract_id,
                 );
-                env.storage().persistent().set(
-                    &(Symbol::new(&env, "method"), rule_count),
-                    &method,
-                );
+                env.storage()
+                    .persistent()
+                    .set(&(Symbol::new(&env, "method"), rule_count), &method);
 
                 // Emit event: policy applied for this method
                 env.events().publish(
                     (Symbol::new(&env, "policy_applied"),),
-                    (allowed.contract_id.clone(), method, allowed.max_spend_per_period),
+                    (
+                        allowed.contract_id.clone(),
+                        method,
+                        allowed.max_spend_per_period,
+                    ),
                 );
             }
         }
 
-        env.storage().instance().set(&DataKey::RuleCount, &rule_count);
+        env.storage()
+            .instance()
+            .set(&DataKey::RuleCount, &rule_count);
         Ok(())
     }
 
@@ -264,7 +259,14 @@ impl AgentAccountContract {
     ///
     /// # Returns
     /// `true` if the spend was within budget and context matched, `false` if denied.
-    pub fn record_spend(env: Env, admin: Address, rule_id: u32, contract_id: Address, method: Symbol, amount: i128) -> bool {
+    pub fn record_spend(
+        env: Env,
+        admin: Address,
+        rule_id: u32,
+        contract_id: Address,
+        method: Symbol,
+        amount: i128,
+    ) -> bool {
         // Only admin can record spends (in production, this would be
         // called by the policy contract during enforcement)
         let stored_admin: Address = env
@@ -275,7 +277,10 @@ impl AgentAccountContract {
         if admin != stored_admin {
             env.events().publish(
                 (Symbol::new(&env, "auth_decision"),),
-                (Symbol::new(&env, "denied"), Symbol::new(&env, "unauthorized")),
+                (
+                    Symbol::new(&env, "denied"),
+                    Symbol::new(&env, "unauthorized"),
+                ),
             );
             return false;
         }
@@ -331,7 +336,7 @@ impl AgentAccountContract {
             .storage()
             .persistent()
             .get(&(Symbol::new(&env, "contract"), rule_id));
-        
+
         let expected_method: Option<Symbol> = env
             .storage()
             .persistent()
@@ -340,7 +345,11 @@ impl AgentAccountContract {
         if expected_contract != Some(contract_id) || expected_method != Some(method) {
             env.events().publish(
                 (Symbol::new(&env, "auth_decision"),),
-                (Symbol::new(&env, "denied"), Symbol::new(&env, "invalid_context"), amount),
+                (
+                    Symbol::new(&env, "denied"),
+                    Symbol::new(&env, "invalid_context"),
+                    amount,
+                ),
             );
             return false;
         }
@@ -349,7 +358,11 @@ impl AgentAccountContract {
             // Denied: over rate limit
             env.events().publish(
                 (Symbol::new(&env, "auth_decision"),),
-                (Symbol::new(&env, "denied"), Symbol::new(&env, "rate_limited"), amount),
+                (
+                    Symbol::new(&env, "denied"),
+                    Symbol::new(&env, "rate_limited"),
+                    amount,
+                ),
             );
             return false;
         }
@@ -358,7 +371,11 @@ impl AgentAccountContract {
             // Denied: over budget
             env.events().publish(
                 (Symbol::new(&env, "auth_decision"),),
-                (Symbol::new(&env, "denied"), Symbol::new(&env, "over_budget"), amount),
+                (
+                    Symbol::new(&env, "denied"),
+                    Symbol::new(&env, "over_budget"),
+                    amount,
+                ),
             );
             return false;
         }

@@ -13,7 +13,10 @@ def test_ci_workflow_exists():
 def test_ci_runs_rust_and_python_gates():
     text = WORKFLOW.read_text(encoding="utf-8")
     for needle in (
+        "cargo fmt",
+        "cargo clippy",
         "cargo test",
         "pytest",
+        "ruff check",
     ):
         assert needle in text, f"CI workflow missing: {needle}"
