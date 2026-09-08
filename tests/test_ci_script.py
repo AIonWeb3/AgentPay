@@ -13,5 +13,6 @@ def test_local_ci_script_exists():
 def test_local_ci_runs_same_core_gates():
     text = SCRIPT.read_text(encoding="utf-8")
     assert "cargo test --workspace" in text
-    assert "pytest -q tests policy-generator" in text
+    assert "ruff check" in text
+    assert "pytest -q" in text
     assert "set -euo pipefail" in text

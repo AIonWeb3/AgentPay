@@ -1,0 +1,18 @@
+[project]
+name = "agentpay"
+version = "0.1.0"
+requires-python = ">=3.10"
+description = "Least-privilege spending for AI agents on Stellar"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["policy-generator", "demo", "scripts", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "policy-generator", "demo/tests"]
+pythonpath = ["policy-generator", "scripts", "demo", "."]

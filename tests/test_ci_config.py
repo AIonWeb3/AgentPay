@@ -15,5 +15,6 @@ def test_ci_runs_rust_and_python_gates():
     for needle in (
         "cargo test",
         "pytest",
+        "ruff check",
     ):
         assert needle in text, f"CI workflow missing: {needle}"

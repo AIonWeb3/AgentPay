@@ -7,6 +7,8 @@ cd "$ROOT"
 echo "==> cargo test"
 cargo test --workspace
 
+echo "==> ruff"
+ruff check policy-generator demo tests scripts
+
 echo "==> pytest"
-export PYTHONPATH="policy-generator:scripts:."
-pytest -q tests policy-generator
+pytest -q

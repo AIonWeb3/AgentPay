@@ -23,10 +23,9 @@ import math
 import sys
 from collections import defaultdict
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 from schema import AllowedContract, AllowedMethod, PolicySpec
-
 
 # ---------------------------------------------------------------------------
 # Transaction log types
