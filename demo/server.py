@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from auth import require_operator
+from auth import require_operator, require_reader
 from engine import AgentPayEngine
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -37,12 +37,12 @@ def reset(_: str = Depends(require_operator)):
 
 
 @app.post("/api/discover")
-def discover(body: DiscoverBody):
+def discover(body: DiscoverBody, _: str = Depends(require_reader)):
     return {"query": body.query, "results": engine.discover(body.query)}
 
 
 @app.get("/api/budget")
-def budget():
+def budget(_: str = Depends(require_reader)):
     snap = engine.snapshot()
     return {
         "remaining_stroops": snap["remaining_stroops"],
