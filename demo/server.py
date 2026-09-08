@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from auth import require_operator
 from engine import AgentPayEngine
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -31,7 +32,7 @@ def state():
 
 
 @app.post("/api/reset")
-def reset():
+def reset(_: str = Depends(require_operator)):
     return engine.reset_demo()
 
 
@@ -53,7 +54,7 @@ def budget():
 
 
 @app.post("/api/pay")
-def pay(body: PayBody):
+def pay(body: PayBody, _: str = Depends(require_operator)):
     try:
         return engine.pay_and_call(body.resource_id, body.params)
     except KeyError:
