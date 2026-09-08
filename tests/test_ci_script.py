@@ -12,6 +12,8 @@ def test_local_ci_script_exists():
 
 def test_local_ci_runs_same_core_gates():
     text = SCRIPT.read_text(encoding="utf-8")
+    assert "cargo fmt --all -- --check" in text
+    assert "cargo clippy -p mcp-server" in text
     assert "cargo test --workspace" in text
     assert "ruff check" in text
     assert "pytest -q" in text

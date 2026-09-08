@@ -14,14 +14,12 @@ use std::fmt;
 
 /// Errors that can occur during pay_and_call.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum PayAndCallError {
     /// The smart account's spending policy denied the transaction.
     PolicyDenied(String),
     /// The agent's budget is insufficient for this call.
-    InsufficientBudget {
-        required: i128,
-        available: i128,
-    },
+    InsufficientBudget { required: i128, available: i128 },
     /// The underlying resource call failed.
     ResourceCallFailed(String),
     /// The resource ID was not found in the registry.
@@ -34,7 +32,10 @@ impl fmt::Display for PayAndCallError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::PolicyDenied(reason) => write!(f, "Policy denied: {reason}"),
-            Self::InsufficientBudget { required, available } => {
+            Self::InsufficientBudget {
+                required,
+                available,
+            } => {
                 write!(
                     f,
                     "Insufficient budget: required {required} stroops, available {available} stroops"
@@ -82,10 +83,7 @@ pub struct PayAndCallResult {
 /// # Errors
 /// Returns typed errors for policy denial, insufficient budget,
 /// resource not found, and resource call failure.
-pub fn pay_and_call(
-    resource_id: &str,
-    params: &str,
-) -> Result<PayAndCallResult, PayAndCallError> {
+pub fn pay_and_call(resource_id: &str, params: &str) -> Result<PayAndCallResult, PayAndCallError> {
     // Validate the resource exists in the registry
     let resources = super::discover::load_registry();
     let resource = resources

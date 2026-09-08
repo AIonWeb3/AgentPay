@@ -4,6 +4,8 @@
 //! All functions here are placeholders for the second pass, which
 //! will wire up real Soroban transaction submission and querying.
 
+#![allow(dead_code)]
+
 use anyhow::Result;
 
 /// Configuration for connecting to the Soroban testnet.
