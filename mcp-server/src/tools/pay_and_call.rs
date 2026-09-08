@@ -83,30 +83,56 @@ pub struct PayAndCallResult {
 /// # Errors
 /// Returns typed errors for policy denial, insufficient budget,
 /// resource not found, and resource call failure.
+use crate::policy::{PolicyOutcome, evaluate_call};
+
+/// Default per-vendor window used when no AGENTPAY_STATE is present.
+fn default_window() -> (i128, u32, i128, u32) {
+    // spent, calls, max_spend, max_calls
+    (0, 0, 10_000_000, 10_000)
+}
+
 pub fn pay_and_call(resource_id: &str, params: &str) -> Result<PayAndCallResult, PayAndCallError> {
-    // Validate the resource exists in the registry
+    pay_and_call_with_window(resource_id, params, default_window())
+}
+
+pub fn pay_and_call_with_window(
+    resource_id: &str,
+    params: &str,
+    window: (i128, u32, i128, u32),
+) -> Result<PayAndCallResult, PayAndCallError> {
     let resources = super::discover::load_registry();
     let resource = resources
         .iter()
         .find(|r| r.id == resource_id)
         .ok_or_else(|| PayAndCallError::ResourceNotFound(resource_id.to_string()))?;
 
-    // TODO: Check budget via soroban_client::query_budget()
-    // TODO: Build and submit Soroban transaction
-    // TODO: Wait for confirmation with bounded retry (max 3 attempts)
-    // TODO: Call the underlying resource
-    // TODO: Record the spend on-chain
-
-    // Stub response: simulate a successful call
-    Ok(PayAndCallResult {
-        tx_hash: "stub_tx_abc123def456".to_string(),
-        ledger: 12345678,
-        amount_spent: resource.price as i128,
-        resource_response: format!(
-            "{{\"status\": \"ok\", \"resource\": \"{}\", \"params\": {}}}",
-            resource.name, params
-        ),
-    })
+    let (spent, calls, max_spend, max_calls) = window;
+    match evaluate_call(
+        true,
+        resource.price as i128,
+        spent,
+        max_spend,
+        calls,
+        max_calls,
+    ) {
+        PolicyOutcome::Denied { reason } => Err(PayAndCallError::PolicyDenied(reason)),
+        PolicyOutcome::InsufficientBudget {
+            required,
+            available,
+        } => Err(PayAndCallError::InsufficientBudget {
+            required,
+            available,
+        }),
+        PolicyOutcome::Allow { remaining: _ } => Ok(PayAndCallResult {
+            tx_hash: "stub_tx_abc123def456".to_string(),
+            ledger: 12345678,
+            amount_spent: resource.price as i128,
+            resource_response: format!(
+                "{{\"status\": \"ok\", \"resource\": \"{}\", \"params\": {}}}",
+                resource.name, params
+            ),
+        }),
+    }
 }
 
 #[cfg(test)]
@@ -120,6 +146,21 @@ mod tests {
         let res = result.unwrap();
         assert_eq!(res.amount_spent, 50);
         assert!(res.tx_hash.starts_with("stub_"));
+    }
+
+    #[test]
+    fn test_pay_and_call_over_cap() {
+        let result = pay_and_call_with_window("weather-oracle", "{}", (0, 0, 10, 10));
+        match result.unwrap_err() {
+            PayAndCallError::InsufficientBudget {
+                required,
+                available,
+            } => {
+                assert_eq!(required, 50);
+                assert_eq!(available, 10);
+            }
+            other => panic!("expected InsufficientBudget, got {other}"),
+        }
     }
 
     #[test]
