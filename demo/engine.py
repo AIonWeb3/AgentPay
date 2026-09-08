@@ -10,7 +10,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from store import connect, insert_session, migrate
+from store import (
+    clear_audit,
+    connect,
+    insert_audit,
+    insert_session,
+    list_audit,
+    migrate,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "policy-generator"))
@@ -117,6 +124,9 @@ class AgentPayEngine:
 
     def reset_demo(self) -> dict[str, Any]:
         self.state = AccountState()
+        self._persist_session()
+        if self.conn is not None:
+            clear_audit(self.conn, self.session_id)
         self.state.tx_log = generate_transaction_log(
             num_transactions=75, span_hours=24, seed=42
         )
@@ -161,7 +171,7 @@ class AgentPayEngine:
             "remaining_xlm": self.total_remaining() / 10_000_000,
             "rules": [self._rule_view(r) for r in self.state.rules],
             "policy": self.state.policy,
-            "audit": [e.__dict__ for e in reversed(self.state.audit[-40:])],
+            "audit": self._audit_view(),
             "tx_log": self.state.tx_log,
             "resources": self.resources,
         }
@@ -256,15 +266,32 @@ class AgentPayEngine:
         tx_hash: str | None = None,
         ledger: int | None = None,
     ) -> None:
-        self.state.audit.append(
-            AuditEvent(
-                ts=time.time(),
-                decision=decision,
-                reason=reason,
-                resource_id=resource_id,
-                amount=amount,
-                remaining=remaining,
-                tx_hash=tx_hash,
-                ledger=ledger,
-            )
+        event = AuditEvent(
+            ts=time.time(),
+            decision=decision,
+            reason=reason,
+            resource_id=resource_id,
+            amount=amount,
+            remaining=remaining,
+            tx_hash=tx_hash,
+            ledger=ledger,
         )
+        self.state.audit.append(event)
+        if self.conn is not None:
+            insert_audit(
+                self.conn,
+                self.session_id,
+                ts=event.ts,
+                decision=event.decision,
+                reason=event.reason,
+                resource_id=event.resource_id,
+                amount=event.amount,
+                remaining=event.remaining,
+                tx_hash=event.tx_hash,
+                ledger=event.ledger,
+            )
+
+    def _audit_view(self) -> list[dict[str, Any]]:
+        if self.conn is None:
+            return [e.__dict__ for e in reversed(self.state.audit[-40:])]
+        return [dict(row) for row in list_audit(self.conn, self.session_id)]

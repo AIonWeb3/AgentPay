@@ -129,3 +129,45 @@ def list_rules(conn: sqlite3.Connection, session_id: str) -> list[sqlite3.Row]:
         (session_id,),
     ).fetchall()
 
+
+def clear_audit(conn: sqlite3.Connection, session_id: str) -> None:
+    conn.execute("DELETE FROM audit_events WHERE session_id = ?", (session_id,))
+    conn.commit()
+
+
+def insert_audit(
+    conn: sqlite3.Connection,
+    session_id: str,
+    *,
+    ts: float,
+    decision: str,
+    reason: str,
+    resource_id: str,
+    amount: int,
+    remaining: int,
+    tx_hash: str | None = None,
+    ledger: int | None = None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO audit_events (
+            session_id, ts, decision, reason, resource_id, amount, remaining, tx_hash, ledger
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (session_id, ts, decision, reason, resource_id, amount, remaining, tx_hash, ledger),
+    )
+    conn.commit()
+
+
+def list_audit(conn: sqlite3.Connection, session_id: str, limit: int = 40) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT * FROM audit_events
+        WHERE session_id = ?
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (session_id, limit),
+    ).fetchall()
+
+
