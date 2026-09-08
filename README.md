@@ -1,14 +1,34 @@
-# AgentPay-Soroban
+# AgentPay
 
 > An AI agent discovers, authorizes, pays for, and calls on-chain resources — with
 > spending policies generated from data and enforced by a Soroban smart account.
 
-**AgentPay** targets two Stellar Community Fund RFPs simultaneously:
+Repo: [github.com/AIonWeb3/AgentPay](https://github.com/AIonWeb3/AgentPay)
+
+**AgentPay** targets two Stellar Community Fund RFPs:
 
 1. **AI-Assisted Policy Toolkit** — Turns observed/simulated transactions into a
    minimal least-privilege account policy (spending caps + contract allowlists).
 2. **MCP Discovery & Paid-Call Server** — Lets an AI agent find and pay for a
    resource from inside its own runtime via the Model Context Protocol.
+
+## Pitch demo
+
+A local operator console walks the full story on one screen: synthetic traffic →
+policy → MCP discover → budget check → approved pay → policy deny → per-vendor
+scope.
+
+```bash
+pip install -r demo/requirements.txt -r policy-generator/requirements.txt
+python demo/server.py
+```
+
+Open [http://127.0.0.1:8080](http://127.0.0.1:8080), go fullscreen, click **Run pitch demo**.
+
+The console uses the same policy generator and registry as the rest of the repo.
+Enforcement matches the smart account: allowlist, spend cap, and rate limit.
+This is a local simulation suitable for recording; live testnet wiring is still
+a follow-up.
 
 ## Architecture
 
@@ -22,7 +42,7 @@
 │  └──────────┘                │  • check_budget()             │ │
 │                               │  • pay_and_call(id, params)   │ │
 │                               └──────────┬───────────────────┘ │
-└──────────────────────────────────────────┼─────────────────────┘
+└──────────────────────────────────────────┼───────────────────┘
                                            │ Soroban RPC
                                            ▼
                               ┌────────────────────────┐
@@ -45,6 +65,7 @@
 │  (observed data)      (p95 caps + allowlist)   (apply on-chain) │
 │                                                                  │
 │  simulate_agent.py ──► synthetic log for demos                  │
+│  demo/server.py      ──► visual operator console                   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -55,6 +76,7 @@
 | `contracts/agent-account/` | Rust (Soroban) | Smart account with context rules, spending limits, audit events |
 | `mcp-server/` | Rust | MCP server with 3 tools: discover, check_budget, pay_and_call |
 | `policy-generator/` | Python | Rule-based policy generator (p95 caps from tx logs) |
+| `demo/` | Python + HTML | Pitch console: HTTP API + in-memory policy engine |
 | `registry/` | JSON | Seed data for paid resource discovery |
 | `scripts/` | Bash/Python | Testnet deployment + synthetic data generation |
 
@@ -78,18 +100,14 @@ cargo test -p agent-account
 cargo run -p mcp-server
 ```
 
-The server starts on stdio. Connect any MCP-compatible client to use the tools.
+The server starts on stdio. Tools take real arguments (`query`, `resource_id`,
+`params`). Connect any MCP-compatible client to use them.
 
 ### 3. Generate a Policy (Python)
 
 ```bash
-# Install dependencies
 pip install -r policy-generator/requirements.txt
-
-# Generate a synthetic transaction log
 python scripts/simulate_agent.py > transaction_log.json
-
-# Generate a policy from the log
 python policy-generator/generate_policy.py transaction_log.json > policy.json
 ```
 
@@ -121,66 +139,52 @@ python policy-generator/generate_policy.py transaction_log.json > policy.json
                  Transaction authorized by smart account, spend recorded,
                  resource invoked, response returned.
 
-8. AUDIT     →  Check auth_decision events on-chain
+8. AUDIT     →  Check auth_decision events
                  Every approve/deny is logged with amounts for review.
 ```
+
+Steps 1–2 and 5–8 can be shown in one take via `python demo/server.py`.
 
 ## Project Structure
 
 ```
-agentpay-soroban/
-├── Cargo.toml                         # Workspace
-├── contracts/
-│   └── agent-account/
-│       ├── Cargo.toml
-│       └── src/
-│           ├── lib.rs                 # Contract: smart account + policy mgmt
-│           ├── policy_spec.rs         # PolicySpec contracttypes
-│           └── test.rs                # Unit tests
-├── mcp-server/
-│   ├── Cargo.toml
-│   └── src/
-│       ├── main.rs                    # MCP server (rmcp, stdio)
-│       ├── soroban_client.rs          # Soroban RPC client (stub)
-│       └── tools/
-│           ├── mod.rs
-│           ├── discover.rs            # discover_resources tool
-│           ├── check_budget.rs        # check_budget tool
-│           └── pay_and_call.rs        # pay_and_call tool
-├── policy-generator/
-│   ├── requirements.txt
-│   ├── schema.py                      # PolicySpec pydantic models
-│   └── generate_policy.py             # Rule-based policy generator
-├── registry/
-│   └── resources.json                 # Seed paid resources
+AgentPay/
+├── Cargo.toml
+├── contracts/agent-account/          # Soroban smart account
+├── mcp-server/                       # MCP tools over stdio
+├── policy-generator/                 # PolicySpec from tx logs
+├── demo/                             # Pitch console (FastAPI + static UI)
+│   ├── server.py
+│   ├── engine.py                     # In-memory enforcement
+│   └── static/
+├── registry/resources.json
 ├── scripts/
-│   ├── deploy_testnet.sh              # Testnet deployment
-│   └── simulate_agent.py              # Synthetic tx log generator
+│   ├── deploy_testnet.sh
+│   └── simulate_agent.py
 └── README.md
 ```
 
 ## Tech Stack
 
-- **Soroban Contracts**: `soroban-sdk` 27.x, `#![no_std]`, Rust 2021 edition
+- **Soroban Contracts**: `soroban-sdk`, `#![no_std]`
 - **Smart Account Framework**: OpenZeppelin `stellar-accounts` 0.7.x
-  - Context rules, spending-limit policies, composable signers
-- **MCP Server**: `rmcp` 3.1.x (official Rust MCP SDK), stdio transport
+- **MCP Server**: `rmcp` 3.1.x, stdio transport
 - **Policy Generator**: Python 3.10+, `pydantic` 2.x
+- **Pitch console**: FastAPI + vanilla HTML/CSS/JS
 
 ## Current Status
 
-**First pass** — the scaffold is complete:
-- ✅ `contracts/agent-account` builds with tests green
-- ✅ `mcp-server` runs over stdio with three tools returning stub responses
-- ✅ `registry/resources.json` populated with 3 test resources
-- ✅ `policy-generator` produces valid PolicySpec from transaction logs
+- Smart account: initialize, apply_policy, remaining budget, record_spend, rolling window, per-vendor scope, rate limits (unit tests)
+- MCP: `discover_resources`, `check_budget`, and `pay_and_call` accept arguments; pay path still uses stub Soroban RPC
+- Policy generator: p95 × 1.5 caps + allowlist from transaction logs
+- Demo console: local simulation for pitches and walkthroughs
 
-**Second pass** (TODO):
-- [ ] Wire MCP server tools to real Soroban testnet calls
-- [ ] Deploy SpendingLimitPolicy contract alongside the account
-- [ ] Implement rolling-window spend tracking
-- [ ] Add bounded retry logic to `pay_and_call`
-- [ ] Integration tests with testnet
+**Still to do**
+
+- Wire MCP tools to live Soroban testnet
+- Deploy SpendingLimitPolicy next to the account
+- Bounded retry on `pay_and_call`
+- Integration tests against testnet
 
 ## License
 
