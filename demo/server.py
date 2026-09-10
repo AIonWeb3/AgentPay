@@ -74,6 +74,11 @@ def generate_policy(_: str = Depends(require_operator)):
     return engine.generate_policy()
 
 
+@app.get("/api/tx-log")
+def tx_log(_: str = Depends(require_reader)):
+    return {"transactions": engine.state.tx_log, "count": len(engine.state.tx_log)}
+
+
 @app.post("/api/pitch/step")
 def pitch_step(_: str = Depends(require_operator)):
     return engine.advance_pitch()
