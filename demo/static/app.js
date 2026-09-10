@@ -67,6 +67,14 @@ function xlm(n) {
 
 let selectedId = "";
 
+function relTime(ts) {
+  if (!ts) return "";
+  const sec = Math.max(0, (Date.now() / 1000 - Number(ts)) | 0);
+  if (sec < 5) return "just now";
+  if (sec < 60) return `${sec}s ago`;
+  return `${Math.floor(sec / 60)}m ago`;
+}
+
 function render(state) {
   $("ledger").textContent = `ledger ${state.ledger.toLocaleString()}`;
   $("remain").textContent = stroops(state.remaining_stroops);
@@ -105,7 +113,7 @@ function render(state) {
     .map((e) => {
       const cls = e.decision === "denied" ? "denied" : "approved";
       const extra = e.tx_hash ? ` tx ${e.tx_hash}` : "";
-      return `<div class="${cls}">${e.decision} · ${e.reason} · ${e.resource_id || "policy"} · ${e.amount}${extra}</div>`;
+      return `<div class="row ${cls}"><span>${e.decision} · ${e.reason} · ${e.resource_id || "policy"} · ${e.amount} · rem ${e.remaining}${extra}</span><time>${relTime(e.ts)}</time></div>`;
     })
     .join("");
 }
