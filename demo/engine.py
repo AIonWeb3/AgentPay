@@ -282,12 +282,25 @@ class AgentPayEngine:
 
     def discover(self, query: str) -> list[dict[str, Any]]:
         q = query.lower().strip()
-        results = []
+        scored = []
         for r in self.resources:
-            hay = f"{r['id']} {r['name']} {r['description']}".lower()
-            if not q or q in hay:
-                results.append(r)
-        return results
+            hay_id = r["id"].lower()
+            hay_name = r["name"].lower()
+            hay_desc = r["description"].lower()
+            if not q:
+                scored.append((1, r))
+                continue
+            score = 0
+            if q in hay_id:
+                score += 3
+            if q in hay_name:
+                score += 2
+            if q in hay_desc:
+                score += 1
+            if score:
+                scored.append((score, r))
+        scored.sort(key=lambda item: (-item[0], item[1]["id"]))
+        return [r for _, r in scored]
 
     def pay_and_call(self, resource_id: str, params: str = "{}") -> dict[str, Any]:
         resource = next((r for r in self.resources if r["id"] == resource_id), None)
