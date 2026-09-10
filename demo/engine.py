@@ -98,6 +98,7 @@ class AccountState:
     audit: list[AuditEvent] = field(default_factory=list)
     tx_log: list[dict[str, Any]] = field(default_factory=list)
     policy: dict[str, Any] = field(default_factory=dict)
+    pitch_step: int = 0
 
 
 class AgentPayEngine:
@@ -126,6 +127,7 @@ class AgentPayEngine:
             self.session_id,
             ledger=self.state.ledger,
             period_ledgers=self.state.period_ledgers,
+            pitch_step=self.state.pitch_step,
         )
 
     def reset_demo(self) -> dict[str, Any]:
@@ -270,6 +272,7 @@ class AgentPayEngine:
             "audit": self._audit_view(),
             "tx_log": self.state.tx_log,
             "resources": self.resources,
+            "pitch_step": self.state.pitch_step,
         }
 
     def total_remaining(self) -> int:
@@ -421,3 +424,56 @@ class AgentPayEngine:
         if self.conn is None:
             return [e.__dict__ for e in reversed(self.state.audit[-40:])]
         return [dict(row) for row in list_audit(self.conn, self.session_id)]
+
+    def advance_pitch(self) -> dict[str, Any]:
+        """Advance one pitch beat: simulate → generate → discover → budget → pay → deny → scope."""
+        nxt = self.state.pitch_step + 1
+        if nxt > 7:
+            self.reset_demo()
+            nxt = 1
+        self.state.pitch_step = nxt
+        if nxt == 1:
+            payload: dict[str, Any] = {
+                "tx_count": len(self.state.tx_log),
+                "note": "synthetic traffic loaded",
+            }
+            script = "1/7 Simulate observed agent traffic."
+        elif nxt == 2:
+            payload = self.generate_policy()
+            script = "2/7 Generate a least-privilege policy from the log."
+        elif nxt == 3:
+            payload = {"results": self.discover("weather")}
+            script = "3/7 Discover a paid weather oracle over MCP."
+        elif nxt == 4:
+            snap = self.snapshot()
+            payload = {
+                "remaining_stroops": snap["remaining_stroops"],
+                "rules": snap["rules"],
+            }
+            script = "4/7 Check remaining budget before spending."
+        elif nxt == 5:
+            payload = self.pay_and_call("weather-oracle")
+            script = "5/7 pay_and_call weather succeeds under the cap."
+        elif nxt == 6:
+            payload = self.pay_and_call("weather-oracle")
+            script = "6/7 A second weather call exceeds the cap and is denied."
+        else:
+            payload = self.pay_and_call("price-feed")
+            script = "7/7 Price feed still allowed — spend is scoped per vendor."
+        self._persist_session()
+        return {
+            "step": nxt,
+            "name": {
+                1: "simulate",
+                2: "generate",
+                3: "discover",
+                4: "budget",
+                5: "pay",
+                6: "deny",
+                7: "scope",
+            }[nxt],
+            "script": script,
+            "done": nxt == 7,
+            "result": payload,
+            "state": self.snapshot(),
+        }

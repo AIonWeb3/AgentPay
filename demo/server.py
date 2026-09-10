@@ -74,6 +74,11 @@ def generate_policy(_: str = Depends(require_operator)):
     return engine.generate_policy()
 
 
+@app.post("/api/pitch/step")
+def pitch_step(_: str = Depends(require_operator)):
+    return engine.advance_pitch()
+
+
 @app.post("/api/pay")
 def pay(body: PayBody, _: str = Depends(require_operator)):
     try:
