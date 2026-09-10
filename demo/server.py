@@ -53,6 +53,11 @@ def budget(_: str = Depends(require_reader)):
     }
 
 
+@app.post("/api/generate-policy")
+def generate_policy(_: str = Depends(require_operator)):
+    return engine.generate_policy()
+
+
 @app.post("/api/pay")
 def pay(body: PayBody, _: str = Depends(require_operator)):
     try:
