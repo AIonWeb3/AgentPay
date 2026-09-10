@@ -139,7 +139,7 @@ input {
 .err { color: var(--deny); }
 .dim { color: var(--muted); }
 
-.cards { display: flex; flex-direction: column; gap: 8px; }
+.empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
 .card {
   border: 1px solid var(--line);
   border-radius: 10px;

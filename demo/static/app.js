@@ -88,7 +88,7 @@ function render(state) {
         <small>${r.method} · cap ${stroops(r.max_spend_per_period)} (${xlm(r.max_spend_per_period)}) · max ${r.max_calls_per_period} calls</small>
       </article>`
     )
-    .join("");
+    .join("") || `<p class="empty">No policy rules installed.</p>`;
 
   $("market").innerHTML = (state.resources || [])
     .map(
@@ -98,7 +98,7 @@ function render(state) {
         <small>${r.price} stroops / call · ${xlm(r.price)}</small>
       </article>`
     )
-    .join("");
+    .join("") || `<p class="empty">Marketplace is empty.</p>`;
 
   $("bars").innerHTML = (state.rules || [])
     .map(
@@ -107,7 +107,7 @@ function render(state) {
         <div class="bar"><i style="width:${Math.min(100, r.used_pct)}%"></i></div>
       </div>`
     )
-    .join("");
+    .join("") || `<p class="empty">No spend yet this period.</p>`;
 
   $("audit").innerHTML = (state.audit || [])
     .map((e) => {
@@ -115,7 +115,7 @@ function render(state) {
       const extra = e.tx_hash ? ` tx ${e.tx_hash}` : "";
       return `<div class="row ${cls}"><span>${e.decision} · ${e.reason} · ${e.resource_id || "policy"} · ${e.amount} · rem ${e.remaining}${extra}</span><time>${relTime(e.ts)}</time></div>`;
     })
-    .join("");
+    .join("") || `<p class="empty">No auth_decision events yet.</p>`;
 }
 
 async function refresh() {
@@ -173,6 +173,9 @@ async function pay(id) {
 $("discover").onclick = discover;
 $("budget-btn").onclick = budget;
 $("reset").onclick = async () => {
+  if (!window.confirm("Reset the live pitch demo? Current spend and audit events will be wiped.")) {
+    return;
+  }
   await api("/api/reset", { method: "POST" });
   consoleEl.innerHTML = "";
   $("script").innerHTML = "Demo reset. Policy regenerated from 75 synthetic transactions.";
