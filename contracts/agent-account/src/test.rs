@@ -1,253 +1,210 @@
-//! # Unit Tests for AgentPay Smart Account
-//!
-//! Tests for `apply_policy`, authorized/denied spend flows, and
-//! audit event emission.
+//! Unit tests: auth-path deny/approve, per-vendor isolation, rolling window,
+//! rate limits, and `auth_decision` events.
 
 #![cfg(test)]
 
+extern crate std;
+
 use soroban_sdk::{
+    auth::{Context, ContractContext},
     testutils::{Address as _, Events, Ledger},
-    vec, Address, Env, IntoVal, Symbol, Vec,
+    vec, Address, BytesN, Env, IntoVal, Map, Symbol, Val, Vec,
 };
+use stellar_accounts::smart_account::AuthPayload;
 
 use crate::{
     policy_spec::{AllowedContract, PolicySpec},
+    spend::SpendPolicyContract,
     AgentAccountContract, AgentAccountContractClient,
 };
 
-/// Helper: create a test environment and deploy the contract.
-fn setup() -> (Env, AgentAccountContractClient<'static>, Address) {
+fn setup() -> (Env, AgentAccountContractClient<'static>, Address, Address) {
     let env = Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(AgentAccountContract, ());
-    let client = AgentAccountContractClient::new(&env, &contract_id);
+    let policy = env.register(SpendPolicyContract, ());
+    let account = env.register(AgentAccountContract, ());
+    let client = AgentAccountContractClient::new(&env, &account);
     let admin = Address::generate(&env);
-
     client.initialize(&admin);
-
-    (env, client, admin)
+    client.set_spend_policy(&admin, &policy);
+    (env, client, admin, account)
 }
 
-/// Helper: create a sample PolicySpec with one allowed contract.
 fn sample_policy(env: &Env, vendor: &Address, cap: i128, period: u32) -> PolicySpec {
+    sample_policy_calls(env, vendor, cap, period, 100)
+}
+
+fn sample_policy_calls(
+    env: &Env,
+    vendor: &Address,
+    cap: i128,
+    period: u32,
+    max_calls: u32,
+) -> PolicySpec {
     let mut methods: Vec<Symbol> = Vec::new(env);
     methods.push_back(Symbol::new(env, "get_data"));
-
     let allowed = AllowedContract {
         contract_id: vendor.clone(),
         allowed_methods: methods,
         max_spend_per_period: cap,
-        max_calls_per_period: 100, // Default call limit for tests
+        max_calls_per_period: max_calls,
     };
-
     let mut contracts: Vec<AllowedContract> = Vec::new(env);
     contracts.push_back(allowed);
-
     PolicySpec {
         allowed_contracts: contracts,
         period_ledgers: period,
     }
 }
 
-// -----------------------------------------------------------------------
-// Test: apply_policy installs rules correctly
-// -----------------------------------------------------------------------
+fn try_auth(
+    env: &Env,
+    account: &Address,
+    vendor: &Address,
+    method: Symbol,
+    amount: i128,
+    rule_id: u32,
+) -> Result<(), u32> {
+    let mut args: Vec<Val> = Vec::new(env);
+    args.push_back(amount.into_val(env));
+    let ctx = Context::Contract(ContractContext {
+        contract: vendor.clone(),
+        fn_name: method,
+        args,
+    });
+    let payload = AuthPayload {
+        signers: Map::new(env),
+        context_rule_ids: vec![env, rule_id],
+    };
+    let hash = BytesN::<32>::from_array(env, &[7u8; 32]);
+    match env.try_invoke_contract_check_auth::<stellar_accounts::smart_account::SmartAccountError>(
+        account,
+        &hash,
+        payload.into_val(env),
+        &vec![env, ctx],
+    ) {
+        Ok(()) => Ok(()),
+        Err(Ok(_)) => Err(1),
+        Err(Err(soroban_sdk::InvokeError::Contract(code))) => Err(code),
+        Err(Err(_)) => Err(0),
+    }
+}
+
+fn has_auth_reason(env: &Env, reason: &str) -> bool {
+    use soroban_sdk::xdr::ContractEventBody;
+    env.events().all().events().iter().any(|ev| {
+        let ContractEventBody::V0(body) = &ev.body;
+        std::format!("{body:?}").contains(reason)
+    })
+}
 
 #[test]
 fn test_apply_policy() {
-    let (env, client, admin) = setup();
+    let (env, client, admin, _account) = setup();
     let vendor = Address::generate(&env);
-
-    let spec = sample_policy(&env, &vendor, 10_000_000, 17280);
-    client.apply_policy(&admin, &spec);
-
-    // Verify rule count is 1
+    client.apply_policy(&admin, &sample_policy(&env, &vendor, 10_000_000, 17280));
     assert_eq!(client.get_rule_count(), 1);
-
-    // Verify remaining budget equals the cap (nothing spent yet)
-    let remaining = client.get_remaining_budget(&1u32);
-    assert_eq!(remaining, 10_000_000);
+    assert_eq!(client.get_remaining_budget(&0u32), 10_000_000);
 }
-
-// -----------------------------------------------------------------------
-// Test: authorized call under the spend cap
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_authorized_call_under_cap() {
-    let (env, client, admin) = setup();
+    let (env, client, admin, account) = setup();
     let vendor = Address::generate(&env);
-
-    let spec = sample_policy(&env, &vendor, 10_000_000, 17280);
-    client.apply_policy(&admin, &spec);
-
-    // Record a spend of 5,000,000 (under the 10,000,000 cap)
+    client.apply_policy(&admin, &sample_policy(&env, &vendor, 10_000_000, 17280));
     let method = Symbol::new(&env, "get_data");
-    let approved = client.record_spend(&admin, &1u32, &vendor, &method, &5_000_000i128);
-    assert!(approved);
-
-    // Remaining budget should be 5,000,000
-    let remaining = client.get_remaining_budget(&1u32);
-    assert_eq!(remaining, 5_000_000);
+    assert!(try_auth(&env, &account, &vendor, method, 5_000_000, 0).is_ok());
+    assert_eq!(client.get_remaining_budget(&0u32), 5_000_000);
 }
-
-// -----------------------------------------------------------------------
-// Test: denied call over the spend cap
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_denied_call_over_cap() {
-    let (env, client, admin) = setup();
+    let (env, client, admin, account) = setup();
     let vendor = Address::generate(&env);
-
-    let spec = sample_policy(&env, &vendor, 10_000_000, 17280);
-    client.apply_policy(&admin, &spec);
-
-    // Try to spend 15,000,000 (over the 10,000,000 cap)
+    client.apply_policy(&admin, &sample_policy(&env, &vendor, 10_000_000, 17280));
     let method = Symbol::new(&env, "get_data");
-    let approved = client.record_spend(&admin, &1u32, &vendor, &method, &15_000_000i128);
-    assert!(!approved, "Expected spend over cap to be denied");
-
-    // Remaining budget should still be full (spend was rejected)
-    let remaining = client.get_remaining_budget(&1u32);
-    assert_eq!(remaining, 10_000_000);
+    assert_eq!(
+        try_auth(&env, &account, &vendor, method, 15_000_000, 0).unwrap_err(),
+        5
+    );
+    assert_eq!(client.get_remaining_budget(&0u32), 10_000_000);
 }
-
-// -----------------------------------------------------------------------
-// Test: double initialization fails
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_double_initialize_fails() {
-    let (env, client, admin) = setup();
-    let result = client.try_initialize(&admin);
-    assert!(result.is_err(), "Double initialization should fail");
+    let (_env, client, admin, _account) = setup();
+    assert!(client.try_initialize(&admin).is_err());
 }
-
-// -----------------------------------------------------------------------
-// Test: apply_policy with empty spec fails
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_empty_policy_fails() {
-    let (env, client, admin) = setup();
+    let (env, client, admin, _account) = setup();
     let spec = PolicySpec {
         allowed_contracts: Vec::new(&env),
         period_ledgers: 17280,
     };
-    let result = client.try_apply_policy(&admin, &spec);
-    assert!(result.is_err(), "Empty policy should fail");
+    assert!(client.try_apply_policy(&admin, &spec).is_err());
 }
-
-// -----------------------------------------------------------------------
-// Test: cumulative spending tracks correctly
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_cumulative_spending() {
-    let (env, client, admin) = setup();
+    let (env, client, admin, account) = setup();
     let vendor = Address::generate(&env);
-
-    let spec = sample_policy(&env, &vendor, 10_000_000, 17280);
-    client.apply_policy(&admin, &spec);
-
-    // Spend 3M, then 4M (total 7M, under 10M cap)
+    client.apply_policy(&admin, &sample_policy(&env, &vendor, 10_000_000, 17280));
     let method = Symbol::new(&env, "get_data");
-    assert!(client.record_spend(&admin, &1u32, &vendor, &method, &3_000_000i128));
-    assert!(client.record_spend(&admin, &1u32, &vendor, &method, &4_000_000i128));
-    assert_eq!(client.get_remaining_budget(&1u32), 3_000_000);
-
-    // Next spend of 4M would push to 11M — denied
-    assert!(!client.record_spend(&admin, &1u32, &vendor, &method, &4_000_000i128));
-    assert_eq!(client.get_remaining_budget(&1u32), 3_000_000);
+    assert!(try_auth(&env, &account, &vendor, method.clone(), 3_000_000, 0).is_ok());
+    assert!(try_auth(&env, &account, &vendor, method.clone(), 4_000_000, 0).is_ok());
+    assert_eq!(client.get_remaining_budget(&0u32), 3_000_000);
+    assert!(try_auth(&env, &account, &vendor, method, 4_000_000, 0).is_err());
+    assert_eq!(client.get_remaining_budget(&0u32), 3_000_000);
 }
-
-// -----------------------------------------------------------------------
-// Test: rolling window periodic reset
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_rolling_window_reset() {
     let env = Env::default();
     env.mock_all_auths();
-
-    // Start at a known ledger sequence
     env.ledger().set_sequence_number(100);
-
-    let contract_id = env.register(AgentAccountContract, ());
-    let client = AgentAccountContractClient::new(&env, &contract_id);
+    let policy = env.register(SpendPolicyContract, ());
+    let account = env.register(AgentAccountContract, ());
+    let client = AgentAccountContractClient::new(&env, &account);
     let admin = Address::generate(&env);
     client.initialize(&admin);
-
+    client.set_spend_policy(&admin, &policy);
     let vendor = Address::generate(&env);
-
-    // Period is 100 ledgers, cap is 100
-    let spec = sample_policy(&env, &vendor, 100, 100);
-    client.apply_policy(&admin, &spec);
-
+    client.apply_policy(&admin, &sample_policy(&env, &vendor, 100, 100));
     let method = Symbol::new(&env, "get_data");
-
-    // Spend 60
-    assert!(client.record_spend(&admin, &1u32, &vendor, &method, &60i128));
-    assert_eq!(client.get_remaining_budget(&1u32), 40);
-
-    // Spend 50, should be denied (60 + 50 > 100)
-    assert!(!client.record_spend(&admin, &1u32, &vendor, &method, &50i128));
-
-    // Fast forward ledger beyond the period
-    env.ledger().set_sequence_number(201); // > 100 + 100
-
-    // The budget should be reset now, so a spend of 80 should succeed
-    assert_eq!(client.get_remaining_budget(&1u32), 100);
-    assert!(client.record_spend(&admin, &1u32, &vendor, &method, &80i128));
-    assert_eq!(client.get_remaining_budget(&1u32), 20);
+    assert!(try_auth(&env, &account, &vendor, method.clone(), 60, 0).is_ok());
+    assert_eq!(client.get_remaining_budget(&0u32), 40);
+    assert!(try_auth(&env, &account, &vendor, method.clone(), 50, 0).is_err());
+    env.ledger().set_sequence_number(201);
+    assert_eq!(client.get_remaining_budget(&0u32), 100);
+    assert!(try_auth(&env, &account, &vendor, method, 80, 0).is_ok());
+    assert_eq!(client.get_remaining_budget(&0u32), 20);
 }
-
-// -----------------------------------------------------------------------
-// Test: denied call over the rate limit
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_denied_call_over_rate_limit() {
-    let (env, client, admin) = setup();
+    let (env, client, admin, account) = setup();
     let vendor = Address::generate(&env);
-
-    let mut spec = sample_policy(&env, &vendor, 10_000_000, 17280);
-    // Overwrite the default 100 call limit to 2 for this test
-    let mut methods: Vec<Symbol> = Vec::new(&env);
-    methods.push_back(Symbol::new(&env, "get_data"));
-
-    let mut contracts: Vec<AllowedContract> = Vec::new(&env);
-    contracts.push_back(AllowedContract {
-        contract_id: vendor.clone(),
-        allowed_methods: methods,
-        max_spend_per_period: 10_000_000,
-        max_calls_per_period: 2,
-    });
-    spec.allowed_contracts = contracts;
-
-    client.apply_policy(&admin, &spec);
-
+    client.apply_policy(
+        &admin,
+        &sample_policy_calls(&env, &vendor, 10_000_000, 17280, 2),
+    );
     let method = Symbol::new(&env, "get_data");
-    // First call works
-    assert!(client.record_spend(&admin, &1u32, &vendor, &method, &100i128));
-    // Second call works
-    assert!(client.record_spend(&admin, &1u32, &vendor, &method, &100i128));
-    // Third call should fail due to rate limit, even though under spend cap
-    assert!(!client.record_spend(&admin, &1u32, &vendor, &method, &100i128));
+    assert!(try_auth(&env, &account, &vendor, method.clone(), 100, 0).is_ok());
+    assert!(try_auth(&env, &account, &vendor, method.clone(), 100, 0).is_ok());
+    assert_eq!(
+        try_auth(&env, &account, &vendor, method, 100, 0).unwrap_err(),
+        6
+    );
 }
-
-// -----------------------------------------------------------------------
-// Test: context-rule scoping per vendor
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_scoping_per_vendor() {
-    let (env, client, admin) = setup();
+    let (env, client, admin, account) = setup();
     let vendor_a = Address::generate(&env);
     let vendor_b = Address::generate(&env);
-
     let method_a = Symbol::new(&env, "get_data_a");
     let method_b = Symbol::new(&env, "get_data_b");
 
@@ -264,24 +221,34 @@ fn test_scoping_per_vendor() {
         max_spend_per_period: 5_000_000,
         max_calls_per_period: 100,
     });
-
-    let spec = PolicySpec {
-        allowed_contracts: contracts,
-        period_ledgers: 17280,
-    };
-
-    client.apply_policy(&admin, &spec);
-
-    // Rule 1 is vendor A, Rule 2 is vendor B
+    client.apply_policy(
+        &admin,
+        &PolicySpec {
+            allowed_contracts: contracts,
+            period_ledgers: 17280,
+        },
+    );
     assert_eq!(client.get_rule_count(), 2);
 
-    // A call against Vendor A's rule (rule 1) using Vendor B's contract ID should fail
-    // even though the amount is well within the cap (100 < 10M)
-    assert!(!client.record_spend(&admin, &1u32, &vendor_b, &method_a, &100i128));
+    // Vendor B with vendor A's rule → context type / policy deny
+    assert!(try_auth(&env, &account, &vendor_b, method_a.clone(), 100, 0).is_err());
+    // Vendor A contract with B's method on A's rule
+    assert!(try_auth(&env, &account, &vendor_a, method_b.clone(), 100, 0).is_err());
+    assert!(try_auth(&env, &account, &vendor_a, method_a, 100, 0).is_ok());
+    assert_eq!(client.get_remaining_budget(&0u32), 9_999_900);
+    assert_eq!(client.get_remaining_budget(&1u32), 5_000_000);
+}
 
-    // A call against Vendor A's rule using Vendor A's contract but Vendor B's method should fail
-    assert!(!client.record_spend(&admin, &1u32, &vendor_a, &method_b, &100i128));
-
-    // A proper call to Vendor A works
-    assert!(client.record_spend(&admin, &1u32, &vendor_a, &method_a, &100i128));
+#[test]
+fn test_auth_decision_events_approved_and_denied() {
+    let (env, client, admin, account) = setup();
+    let vendor = Address::generate(&env);
+    client.apply_policy(&admin, &sample_policy(&env, &vendor, 100, 17280));
+    let method = Symbol::new(&env, "get_data");
+    assert!(try_auth(&env, &account, &vendor, method.clone(), 10, 0).is_ok());
+    assert!(has_auth_reason(&env, "approved"));
+    assert_eq!(
+        try_auth(&env, &account, &vendor, method, 200, 0).unwrap_err(),
+        5
+    );
 }

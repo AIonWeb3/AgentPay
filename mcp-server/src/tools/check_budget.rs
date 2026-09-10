@@ -1,12 +1,23 @@
-//! # Check Budget Tool
-//!
-//! Reads remaining allowance from `AGENTPAY_STATE` JSON when set,
-//! otherwise a local default snapshot.
+//! Reads remaining allowance from the smart account when configured,
+//! otherwise `AGENTPAY_STATE` JSON / local defaults.
 
 pub use crate::account_state::BudgetStatus;
 use crate::account_state::load_budget;
+use crate::soroban_client::{SorobanConfig, query_budget, query_rule_count};
 
 pub fn check_budget() -> BudgetStatus {
+    let cfg = SorobanConfig::from_env();
+    if cfg.is_live()
+        && let Ok(remaining) = query_budget(&cfg, cfg.rule_id)
+    {
+        let rule_count = query_rule_count(&cfg).unwrap_or(1);
+        return BudgetStatus {
+            remaining_stroops: remaining,
+            remaining_xlm: remaining as f64 / 10_000_000.0,
+            period_ledgers: 17_280,
+            rule_count,
+        };
+    }
     load_budget()
 }
 
