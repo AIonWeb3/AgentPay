@@ -194,6 +194,23 @@ class AgentPayEngine:
             )
         return self.snapshot()
 
+    def generate_policy(self) -> dict[str, Any]:
+        spec = score_transactions(self.state.tx_log)
+        self.state.policy = json.loads(spec.model_dump_json())
+        self.state.period_ledgers = spec.period_ledgers
+        self.state.source_tx_count = spec.source_tx_count
+        self.state.generated_at = spec.generated_at
+        if self.conn is not None:
+            insert_policy(
+                self.conn,
+                self.session_id,
+                spec.model_dump_json(),
+                source_tx_count=spec.source_tx_count,
+                period_ledgers=spec.period_ledgers,
+                generated_at=spec.generated_at,
+            )
+        return self.state.policy
+
     def snapshot(self) -> dict[str, Any]:
         return {
             "account": "GAGENTPAYDEMOACCOUNTXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
