@@ -25,6 +25,16 @@ function setBusy(on, label) {
   }
 }
 
+function showToast(message) {
+  const el = $("toast");
+  el.hidden = false;
+  el.textContent = message;
+}
+
+function hideToast() {
+  $("toast").hidden = true;
+}
+
 async function api(path, opts = {}) {
   const headers = {
     "Content-Type": "application/json",
@@ -32,8 +42,18 @@ async function api(path, opts = {}) {
     ...(opts.headers || {}),
   };
   const res = await fetch(path, { ...opts, headers });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.detail || "request failed");
+  let data = {};
+  try {
+    data = await res.json();
+  } catch {
+    data = { detail: "invalid JSON from server" };
+  }
+  if (!res.ok) {
+    const msg = data.detail || `request failed (${res.status})`;
+    showToast(msg);
+    throw new Error(msg);
+  }
+  hideToast();
   return data;
 }
 
@@ -122,6 +142,9 @@ async function pay(id) {
       body: JSON.stringify({ resource_id: id, params: "{}" }),
     });
     log(JSON.stringify(data, null, 2), data.ok ? "ok" : "err");
+    if (!data.ok) {
+      showToast(`${data.error}: ${data.reason || "policy denied"}`);
+    }
     await refresh();
     return data;
   } finally {
