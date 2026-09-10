@@ -178,4 +178,15 @@ input {
 
 @media (max-width: 900px) {
   .grid { grid-template-columns: 1fr; }
+  .top { flex-wrap: wrap; gap: 12px; }
+  .top-meta { flex-wrap: wrap; }
+}
+
+@media (max-width: 480px) {
+  .top, .script { padding-left: 14px; padding-right: 14px; }
+  .grid { padding: 10px 12px 14px; }
+  .brand h1 { font-size: 17px; }
+  .budget-hero strong { font-size: 22px; }
+  input { min-width: 0; width: 100%; }
+  .tools, .resource-actions { flex-direction: column; }
 }
