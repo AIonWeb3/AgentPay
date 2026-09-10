@@ -54,6 +54,13 @@ def budget(_: str = Depends(require_reader)):
         "period_ledgers": snap["period_ledgers"],
         "rule_count": snap["rule_count"],
         "rules": snap["rules"],
+        "remaining_by_vendor": {
+            r["resource_id"]: {
+                "remaining_spend": r["remaining"],
+                "remaining_calls": max(0, r["max_calls_per_period"] - r["calls"]),
+            }
+            for r in snap["rules"]
+        },
     }
 
 
