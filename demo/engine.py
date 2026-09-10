@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import sys
 import time
@@ -25,6 +24,7 @@ from store import (
     migrate,
     update_rule_window,
 )
+from txhash import tx_hash
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "policy-generator"))
@@ -59,11 +59,6 @@ RESOURCE_RESPONSES = {
         "verified": True,
     },
 }
-
-
-def _tx_hash(seed: str) -> str:
-    digest = hashlib.sha256(seed.encode()).hexdigest()
-    return digest[:16].upper()
 
 
 @dataclass
@@ -357,7 +352,7 @@ class AgentPayEngine:
                 calls=rule.calls,
                 last_reset=rule.last_reset,
             )
-        tx_hash = _tx_hash(f"{self.state.ledger}:{resource_id}:{rule.spent}")
+        digest = tx_hash(f"{self.state.ledger}:{resource_id}:{rule.spent}")
         payload = dict(RESOURCE_RESPONSES.get(resource_id, {"status": "ok"}))
         payload["params"] = json.loads(params) if params.strip() else {}
         remaining = rule.max_spend_per_period - rule.spent
@@ -367,12 +362,12 @@ class AgentPayEngine:
             resource_id,
             amount,
             remaining,
-            tx_hash=tx_hash,
+            tx_hash=digest,
             ledger=self.state.ledger,
         )
         return {
             "ok": True,
-            "tx_hash": tx_hash,
+            "tx_hash": digest,
             "ledger": self.state.ledger,
             "amount_spent": amount,
             "resource_response": payload,
