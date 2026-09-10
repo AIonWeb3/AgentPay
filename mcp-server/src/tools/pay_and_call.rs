@@ -50,6 +50,25 @@ impl fmt::Display for PayAndCallError {
 
 impl std::error::Error for PayAndCallError {}
 
+pub const MAX_TRANSIENT_ATTEMPTS: u32 = 3;
+
+pub fn retry_transient<T, F>(mut op: F) -> Result<T, PayAndCallError>
+where
+    F: FnMut() -> Result<T, PayAndCallError>,
+{
+    let mut last_transient = None;
+    for _ in 0..MAX_TRANSIENT_ATTEMPTS {
+        match op() {
+            Ok(value) => return Ok(value),
+            Err(PayAndCallError::TransientError(msg)) => {
+                last_transient = Some(PayAndCallError::TransientError(msg));
+            }
+            Err(other) => return Err(other),
+        }
+    }
+    Err(last_transient.unwrap_or_else(|| PayAndCallError::TransientError("retry exhausted".into())))
+}
+
 /// Successful response from pay_and_call.
 #[derive(Debug, Serialize)]
 pub struct PayAndCallResult {
@@ -123,14 +142,16 @@ pub fn pay_and_call_with_window(
             required,
             available,
         }),
-        PolicyOutcome::Allow { remaining: _ } => Ok(PayAndCallResult {
-            tx_hash: "stub_tx_abc123def456".to_string(),
-            ledger: 12345678,
-            amount_spent: resource.price as i128,
-            resource_response: format!(
-                "{{\"status\": \"ok\", \"resource\": \"{}\", \"params\": {}}}",
-                resource.name, params
-            ),
+        PolicyOutcome::Allow { remaining: _ } => retry_transient(|| {
+            Ok(PayAndCallResult {
+                tx_hash: "stub_tx_abc123def456".to_string(),
+                ledger: 12345678,
+                amount_spent: resource.price as i128,
+                resource_response: format!(
+                    "{{\"status\": \"ok\", \"resource\": \"{}\", \"params\": {}}}",
+                    resource.name, params
+                ),
+            })
         }),
     }
 }
@@ -161,6 +182,32 @@ mod tests {
             }
             other => panic!("expected InsufficientBudget, got {other}"),
         }
+    }
+
+    #[test]
+    fn test_retry_transient_then_success() {
+        let mut n = 0;
+        let result = retry_transient(|| {
+            n += 1;
+            if n < 3 {
+                Err(PayAndCallError::TransientError("rpc".into()))
+            } else {
+                Ok(7)
+            }
+        });
+        assert_eq!(result.unwrap(), 7);
+        assert_eq!(n, 3);
+    }
+
+    #[test]
+    fn test_retry_does_not_retry_policy_denied() {
+        let mut n = 0;
+        let result: Result<(), _> = retry_transient(|| {
+            n += 1;
+            Err(PayAndCallError::PolicyDenied("no".into()))
+        });
+        assert!(matches!(result, Err(PayAndCallError::PolicyDenied(_))));
+        assert_eq!(n, 1);
     }
 
     #[test]
