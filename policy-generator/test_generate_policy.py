@@ -1,7 +1,9 @@
-import pytest
 from datetime import datetime, timedelta, timezone
 
-from generate_policy import score_transactions
+import pytest
+
+from generate_policy import PolicyInputError, score_transactions
+
 
 def test_score_transactions_outlier():
     base_time = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -44,3 +46,14 @@ def test_score_transactions_outlier():
     # rate_multiplier = 720 / 240 = 3
     # base_calls = 21, max_calls = 21 * 3 * 1.5 = 94
     assert contract_policy.max_calls_per_period >= 21
+
+
+def test_empty_log_rejected():
+    with pytest.raises(PolicyInputError, match="empty"):
+        score_transactions([])
+
+
+def test_missing_fields_rejected():
+    with pytest.raises(PolicyInputError, match="missing"):
+        score_transactions([{"amount": 1}])
+

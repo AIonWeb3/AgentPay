@@ -9,17 +9,16 @@
 //!
 //! Runs over stdio transport for local agent-runtime use.
 
+mod account_state;
+mod policy;
 mod soroban_client;
 mod tools;
 
-use rmcp::{
-    handler::server::router::tool::ToolRouter,
-    handler::server::wrapper::Parameters,
-    model::*,
-    tool, tool_handler, tool_router,
-    ErrorData as McpError,
-};
 use rmcp::schemars::JsonSchema;
+use rmcp::{
+    ErrorData as McpError, handler::server::wrapper::Parameters, model::*, tool, tool_handler,
+    tool_router,
+};
 use serde::Deserialize;
 
 // ---------------------------------------------------------------------------
@@ -47,17 +46,23 @@ struct AgentPayServer;
 #[tool_router]
 impl AgentPayServer {
     /// Discover paid resources matching a search query.
-    #[tool(description = "Search for paid resources (APIs, datasets, on-chain services) available for the agent to call. Returns matching resources with pricing and contract details.")]
-    async fn discover_resources(&self, Parameters(args): Parameters<DiscoverArgs>) -> Result<String, McpError> {
+    #[tool(
+        description = "Search for paid resources (APIs, datasets, on-chain services) available for the agent to call. Returns matching resources with pricing and contract details."
+    )]
+    async fn discover_resources(
+        &self,
+        Parameters(args): Parameters<DiscoverArgs>,
+    ) -> Result<String, McpError> {
         let results = tools::discover::search_resources(&args.query);
-        let text = serde_json::to_string_pretty(&results).unwrap_or_else(|e| {
-            format!("{{\"error\": \"Failed to serialize results: {e}\"}}")
-        });
+        let text = serde_json::to_string_pretty(&results)
+            .unwrap_or_else(|e| format!("{{\"error\": \"Failed to serialize results: {e}\"}}"));
         Ok(text)
     }
 
     /// Check the agent's remaining spending budget.
-    #[tool(description = "Check the agent's remaining spending budget on the smart account. Returns remaining allowance in stroops and XLM, the budget period, and number of active rules.")]
+    #[tool(
+        description = "Check the agent's remaining spending budget on the smart account. Returns remaining allowance in stroops and XLM, the budget period, and number of active rules."
+    )]
     async fn check_budget(&self) -> Result<String, McpError> {
         let status = tools::check_budget::check_budget();
         let text = serde_json::to_string_pretty(&status).unwrap_or_else(|e| {
@@ -67,13 +72,17 @@ impl AgentPayServer {
     }
 
     /// Pay for and call a resource.
-    #[tool(description = "Pay for and invoke a paid resource. Submits a Soroban transaction through the agent's smart account, enforcing spending policies. Returns tx hash, amount spent, and the resource response. Errors include: PolicyDenied, InsufficientBudget, ResourceNotFound, ResourceCallFailed.")]
-    async fn pay_and_call(&self, Parameters(args): Parameters<PayArgs>) -> Result<String, McpError> {
+    #[tool(
+        description = "Pay for and invoke a paid resource. Submits a Soroban transaction through the agent's smart account, enforcing spending policies. Returns tx hash, amount spent, and the resource response. Errors include: PolicyDenied, InsufficientBudget, ResourceNotFound, ResourceCallFailed."
+    )]
+    async fn pay_and_call(
+        &self,
+        Parameters(args): Parameters<PayArgs>,
+    ) -> Result<String, McpError> {
         let text = match tools::pay_and_call::pay_and_call(&args.resource_id, &args.params) {
-            Ok(result) => serde_json::to_string_pretty(&result).unwrap_or_else(|e| {
-                format!("{{\"error\": \"Failed to serialize result: {e}\"}}")
-            }),
-            Err(e) => format!("{{\"error\": \"{e}\"}}"),
+            Ok(result) => serde_json::to_string_pretty(&result)
+                .unwrap_or_else(|e| format!("{{\"error\": \"Failed to serialize result: {e}\"}}")),
+            Err(e) => e.to_structured_json(),
         };
         Ok(text)
     }

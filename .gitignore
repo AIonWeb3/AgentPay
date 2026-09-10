@@ -11,3 +11,6 @@ __pycache__/
 *.dll
 *.exp
 *.lib
+.env
+*.db
+demo/data/

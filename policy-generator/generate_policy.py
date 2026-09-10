@@ -23,10 +23,29 @@ import math
 import sys
 from collections import defaultdict
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 from schema import AllowedContract, AllowedMethod, PolicySpec
 
+
+class PolicyInputError(ValueError):
+    """Raised when a transaction log cannot be turned into a PolicySpec."""
+
+
+REQUIRED_TX_FIELDS = ("contract_id", "method")
+
+
+def validate_tx_log(tx_log: List[Dict[str, Any]]) -> None:
+    if not isinstance(tx_log, list):
+        raise PolicyInputError("transaction log must be a JSON array")
+    if not tx_log:
+        raise PolicyInputError("empty transaction log")
+    for i, tx in enumerate(tx_log):
+        if not isinstance(tx, dict):
+            raise PolicyInputError(f"entry {i} is not an object")
+        missing = [f for f in REQUIRED_TX_FIELDS if not tx.get(f)]
+        if missing:
+            raise PolicyInputError(f"entry {i} missing fields: {', '.join(missing)}")
 
 # ---------------------------------------------------------------------------
 # Transaction log types
@@ -81,19 +100,8 @@ def score_transactions(
 ) -> PolicySpec:
     """
     Generate a minimal least-privilege PolicySpec from a transaction log.
-
-    # TODO: replace with model
-    # Interface: takes tx_log, returns PolicySpec. The schema stays the same.
-
-    Args:
-        tx_log: List of transaction entries with contract_id, method,
-                amount, and timestamp fields.
-        safety_margin: Multiplier applied to the percentile-based cap.
-        percentile_threshold: Which percentile to use for cap calculation.
-
-    Returns:
-        A PolicySpec with the minimal allowlist and spend caps.
     """
+    validate_tx_log(tx_log)
     # Group transactions by contract_id
     by_contract: Dict[str, Dict[str, Any]] = defaultdict(
         lambda: {"methods": set(), "amounts": []}

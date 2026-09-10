@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from auth import require_operator, require_reader
 from engine import AgentPayEngine
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -18,6 +19,10 @@ app = FastAPI(title="AgentPay Demo", version="0.1.0")
 
 class DiscoverBody(BaseModel):
     query: str = ""
+
+
+class PolicyBody(BaseModel):
+    spec: dict | None = None
 
 
 class PayBody(BaseModel):
@@ -31,17 +36,17 @@ def state():
 
 
 @app.post("/api/reset")
-def reset():
+def reset(_: str = Depends(require_operator)):
     return engine.reset_demo()
 
 
 @app.post("/api/discover")
-def discover(body: DiscoverBody):
+def discover(body: DiscoverBody, _: str = Depends(require_reader)):
     return {"query": body.query, "results": engine.discover(body.query)}
 
 
 @app.get("/api/budget")
-def budget():
+def budget(_: str = Depends(require_reader)):
     snap = engine.snapshot()
     return {
         "remaining_stroops": snap["remaining_stroops"],
@@ -49,11 +54,28 @@ def budget():
         "period_ledgers": snap["period_ledgers"],
         "rule_count": snap["rule_count"],
         "rules": snap["rules"],
+        "remaining_by_vendor": {
+            r["resource_id"]: {
+                "remaining_spend": r["remaining"],
+                "remaining_calls": max(0, r["max_calls_per_period"] - r["calls"]),
+            }
+            for r in snap["rules"]
+        },
     }
 
 
+@app.post("/api/apply-policy")
+def apply_policy(body: PolicyBody, _: str = Depends(require_operator)):
+    return engine.apply_policy(body.spec)
+
+
+@app.post("/api/generate-policy")
+def generate_policy(_: str = Depends(require_operator)):
+    return engine.generate_policy()
+
+
 @app.post("/api/pay")
-def pay(body: PayBody):
+def pay(body: PayBody, _: str = Depends(require_operator)):
     try:
         return engine.pay_and_call(body.resource_id, body.params)
     except KeyError:

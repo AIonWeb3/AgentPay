@@ -90,8 +90,6 @@ fn test_authorized_call_under_cap() {
     // Remaining budget should be 5,000,000
     let remaining = client.get_remaining_budget(&1u32);
     assert_eq!(remaining, 5_000_000);
-
-
 }
 
 // -----------------------------------------------------------------------
@@ -114,8 +112,6 @@ fn test_denied_call_over_cap() {
     // Remaining budget should still be full (spend was rejected)
     let remaining = client.get_remaining_budget(&1u32);
     assert_eq!(remaining, 10_000_000);
-
-
 }
 
 // -----------------------------------------------------------------------
@@ -175,7 +171,7 @@ fn test_cumulative_spending() {
 fn test_rolling_window_reset() {
     let env = Env::default();
     env.mock_all_auths();
-    
+
     // Start at a known ledger sequence
     env.ledger().set_sequence_number(100);
 
@@ -185,23 +181,23 @@ fn test_rolling_window_reset() {
     client.initialize(&admin);
 
     let vendor = Address::generate(&env);
-    
+
     // Period is 100 ledgers, cap is 100
     let spec = sample_policy(&env, &vendor, 100, 100);
     client.apply_policy(&admin, &spec);
-    
+
     let method = Symbol::new(&env, "get_data");
-    
+
     // Spend 60
     assert!(client.record_spend(&admin, &1u32, &vendor, &method, &60i128));
     assert_eq!(client.get_remaining_budget(&1u32), 40);
-    
+
     // Spend 50, should be denied (60 + 50 > 100)
     assert!(!client.record_spend(&admin, &1u32, &vendor, &method, &50i128));
-    
+
     // Fast forward ledger beyond the period
     env.ledger().set_sequence_number(201); // > 100 + 100
-    
+
     // The budget should be reset now, so a spend of 80 should succeed
     assert_eq!(client.get_remaining_budget(&1u32), 100);
     assert!(client.record_spend(&admin, &1u32, &vendor, &method, &80i128));
@@ -221,7 +217,7 @@ fn test_denied_call_over_rate_limit() {
     // Overwrite the default 100 call limit to 2 for this test
     let mut methods: Vec<Symbol> = Vec::new(&env);
     methods.push_back(Symbol::new(&env, "get_data"));
-    
+
     let mut contracts: Vec<AllowedContract> = Vec::new(&env);
     contracts.push_back(AllowedContract {
         contract_id: vendor.clone(),
@@ -230,7 +226,7 @@ fn test_denied_call_over_rate_limit() {
         max_calls_per_period: 2,
     });
     spec.allowed_contracts = contracts;
-    
+
     client.apply_policy(&admin, &spec);
 
     let method = Symbol::new(&env, "get_data");
