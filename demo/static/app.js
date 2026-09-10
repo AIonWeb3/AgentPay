@@ -61,6 +61,12 @@ function stroops(n) {
   return `${n.toLocaleString()} stroops`;
 }
 
+function xlm(n) {
+  return `${(n / 10_000_000).toFixed(7)} XLM`;
+}
+
+let selectedId = "";
+
 function render(state) {
   $("ledger").textContent = `ledger ${state.ledger.toLocaleString()}`;
   $("remain").textContent = stroops(state.remaining_stroops);
@@ -68,18 +74,20 @@ function render(state) {
 
   $("policy").innerHTML = (state.rules || [])
     .map(
-      (r) => `<article class="card">
+      (r) => `<article class="card ${r.resource_id === selectedId ? "selected" : ""}">
         <strong>${r.name}</strong>
-        <small>${r.method} · cap ${stroops(r.max_spend_per_period)} · max ${r.max_calls_per_period} calls</small>
+        <span class="tag">${r.resource_id}</span>
+        <small>${r.method} · cap ${stroops(r.max_spend_per_period)} (${xlm(r.max_spend_per_period)}) · max ${r.max_calls_per_period} calls</small>
       </article>`
     )
     .join("");
 
   $("market").innerHTML = (state.resources || [])
     .map(
-      (r) => `<article class="card">
+      (r) => `<article class="card ${r.id === selectedId ? "selected" : ""}">
         <strong>${r.name}</strong>
-        <small>${r.id} · ${r.price} stroops / call</small>
+        <span class="tag">${r.id}</span>
+        <small>${r.price} stroops / call · ${xlm(r.price)}</small>
       </article>`
     )
     .join("");
@@ -144,6 +152,8 @@ async function pay(id) {
     log(JSON.stringify(data, null, 2), data.ok ? "ok" : "err");
     if (!data.ok) {
       showToast(`${data.error}: ${data.reason || "policy denied"}`);
+    } else {
+      selectedId = id;
     }
     await refresh();
     return data;
