@@ -164,7 +164,16 @@ input {
   height: 100%;
   background: linear-gradient(90deg, #7ce7c9, #f5c542);
 }
-.denied { color: var(--deny); }
+.toast {
+  margin: 0 20px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #3a1520;
+  color: var(--deny);
+  border: 1px solid #7a2433;
+  font-size: 13px;
+}
+.toast.deny-banner { background: #3a1520; }
 .approved { color: var(--ok); }
 
 @media (max-width: 900px) {
