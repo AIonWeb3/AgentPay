@@ -142,7 +142,15 @@ input {
   background: #0a1728;
 }
 .card strong { display: block; }
-.card small { color: var(--muted); font-family: "IBM Plex Mono", monospace; }
+.card.selected { border-color: var(--mint); }
+.card .meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.tag {
+  font: 11px "IBM Plex Mono", monospace;
+  color: var(--mint);
+  border: 1px solid #1f5f4e;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
 
 .budget-hero {
   display: grid;
