@@ -9,6 +9,21 @@ function log(text, cls = "") {
 }
 
 const API_KEY = "dev-operator-key";
+let pitchLock = false;
+
+function setBusy(on, label) {
+  if (pitchLock && !on) {
+    return;
+  }
+  document.querySelectorAll("button").forEach((b) => {
+    b.disabled = on;
+    b.classList.toggle("busy", on);
+  });
+  $("busy").classList.toggle("on", on);
+  if (on && label) {
+    $("script").textContent = label;
+  }
+}
 
 async function api(path, opts = {}) {
   const headers = {
@@ -72,31 +87,46 @@ async function refresh() {
 }
 
 async function discover() {
-  const query = $("query").value;
-  log(`> discover_resources("${query}")`, "dim");
-  const data = await api("/api/discover", {
-    method: "POST",
-    body: JSON.stringify({ query }),
-  });
-  log(JSON.stringify(data.results, null, 2), "ok");
+  setBusy(true, "calling discover_resources…");
+  try {
+    const query = $("query").value;
+    log(`> discover_resources("${query}")`, "dim");
+    const data = await api("/api/discover", {
+      method: "POST",
+      body: JSON.stringify({ query }),
+    });
+    log(JSON.stringify(data.results, null, 2), "ok");
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function budget() {
-  log("> check_budget()", "dim");
-  const data = await api("/api/budget");
-  log(JSON.stringify(data, null, 2), "ok");
-  await refresh();
+  setBusy(true, "calling check_budget…");
+  try {
+    log("> check_budget()", "dim");
+    const data = await api("/api/budget");
+    log(JSON.stringify(data, null, 2), "ok");
+    await refresh();
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function pay(id) {
-  log(`> pay_and_call("${id}", "{}")`, "dim");
-  const data = await api("/api/pay", {
-    method: "POST",
-    body: JSON.stringify({ resource_id: id, params: "{}" }),
-  });
-  log(JSON.stringify(data, null, 2), data.ok ? "ok" : "err");
-  await refresh();
-  return data;
+  setBusy(true, `calling pay_and_call ${id}…`);
+  try {
+    log(`> pay_and_call("${id}", "{}")`, "dim");
+    const data = await api("/api/pay", {
+      method: "POST",
+      body: JSON.stringify({ resource_id: id, params: "{}" }),
+    });
+    log(JSON.stringify(data, null, 2), data.ok ? "ok" : "err");
+    await refresh();
+    return data;
+  } finally {
+    setBusy(false);
+  }
 }
 
 $("discover").onclick = discover;
@@ -142,7 +172,8 @@ const PITCH = [
 ];
 
 $("pitch").onclick = async () => {
-  $("pitch").disabled = true;
+  pitchLock = true;
+  setBusy(true, "Running pitch demo…");
   try {
     await api("/api/reset", { method: "POST" });
     consoleEl.innerHTML = "";
@@ -154,7 +185,8 @@ $("pitch").onclick = async () => {
     $("script").innerHTML =
       "Done. Every approve/deny is an <strong>auth_decision</strong> event. Reset and run again.";
   } finally {
-    $("pitch").disabled = false;
+    pitchLock = false;
+    setBusy(false);
   }
 };
 
