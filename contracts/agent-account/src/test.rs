@@ -13,10 +13,31 @@ use soroban_sdk::{
 use stellar_accounts::smart_account::AuthPayload;
 
 use crate::{
+    agent_guard::Role,
     policy_spec::{AllowedContract, PolicySpec},
     spend::SpendPolicyContract,
     AgentAccountContract, AgentAccountContractClient,
 };
+
+#[soroban_sdk::contract]
+pub struct MockAgentGuard;
+
+#[soroban_sdk::contractimpl]
+impl MockAgentGuard {
+    pub fn verify_agent(_env: soroban_sdk::Env, _agent_id: Address, _required_role: Role) -> bool {
+        true
+    }
+}
+
+#[soroban_sdk::contract]
+pub struct DenyingAgentGuard;
+
+#[soroban_sdk::contractimpl]
+impl DenyingAgentGuard {
+    pub fn verify_agent(_env: soroban_sdk::Env, _agent_id: Address, _required_role: Role) -> bool {
+        false
+    }
+}
 
 fn setup() -> (Env, AgentAccountContractClient<'static>, Address, Address) {
     let env = Env::default();
@@ -251,4 +272,32 @@ fn test_auth_decision_events_approved_and_denied() {
         try_auth(&env, &account, &vendor, method, 200, 0).unwrap_err(),
         5
     );
+}
+
+#[test]
+fn test_agent_guard_allows_then_spend() {
+    let (env, client, admin, account) = setup();
+    let guard = env.register(MockAgentGuard, ());
+    client.set_agent_guard(&admin, &guard, &Role::Basic);
+    assert!(client.get_agent_guard().is_some());
+    let vendor = Address::generate(&env);
+    client.apply_policy(&admin, &sample_policy(&env, &vendor, 10_000_000, 17280));
+    let method = Symbol::new(&env, "get_data");
+    assert!(try_auth(&env, &account, &vendor, method, 1_000_000, 0).is_ok());
+    assert_eq!(client.get_remaining_budget(&0u32), 9_000_000);
+}
+
+#[test]
+fn test_agent_guard_denies_before_spend() {
+    let (env, client, admin, account) = setup();
+    let guard = env.register(DenyingAgentGuard, ());
+    client.set_agent_guard(&admin, &guard, &Role::Premium);
+    let vendor = Address::generate(&env);
+    client.apply_policy(&admin, &sample_policy(&env, &vendor, 10_000_000, 17280));
+    let method = Symbol::new(&env, "get_data");
+    assert_eq!(
+        try_auth(&env, &account, &vendor, method, 1_000_000, 0).unwrap_err(),
+        8
+    );
+    assert_eq!(client.get_remaining_budget(&0u32), 10_000_000);
 }

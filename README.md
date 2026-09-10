@@ -47,13 +47,16 @@ Operator UI covers:
 and rate-limit rules as `contracts/agent-account`, with deterministic local tx
 hashes. The MCP server talks to live Soroban RPC / `stellar contract invoke`
 when `ACCOUNT_CONTRACT_ID` and `STELLAR_IDENTITY` are set (see `.env.example`).
+Optional AgentGuard: set `AGENTGUARD_CONTRACT_ID` and `AGENTGUARD_REQUIRED_ROLE`
+(`Basic` / `Premium` / `Admin`) so `__check_auth` calls `verify_agent` before
+spend effects.
 Without those, `check_budget` falls back to `AGENTPAY_STATE` and `pay_and_call`
 returns a `local_` hash — never a stub success against a configured contract.
 
 Copy `.env.example` if you change keys (`DEMO_API_KEY`, `DEMO_READ_KEY`,
-`DATABASE_URL`). The demo store uses `DATABASE_URL` (default
-`sqlite:///demo/data/agentpay.db`). The MCP server can read a JSON budget
-snapshot from `AGENTPAY_STATE` when set.
+`DATABASE_URL`, `AGENTGUARD_CONTRACT_ID`). The demo store uses `DATABASE_URL`
+(default `sqlite:///demo/data/agentpay.db`). The MCP server can read a JSON
+budget snapshot from `AGENTPAY_STATE` when set.
 
 ## Local CI
 
@@ -93,6 +96,7 @@ auth, persistence, pitch API, UI smoke, accessibility, and full agent-pay flow).
                               │  │                  │  │
                               │  │ Context Rules    │  │
                               │  │ Spending Limits  │  │
+                              │  │ AgentGuard check │  │
                               │  │ Audit Events     │  │
                               │  └──────────────────┘  │
                               └────────────────────────┘
@@ -113,7 +117,7 @@ auth, persistence, pitch API, UI smoke, accessibility, and full agent-pay flow).
 
 | Component | Language | Description |
 |-----------|----------|-------------|
-| `contracts/agent-account/` | Rust (Soroban) | Smart account with context rules, spending limits, audit events |
+| `contracts/agent-account/` | Rust (Soroban) | Smart account: context rules, spend/rate policy, optional AgentGuard `verify_agent` |
 | `mcp-server/` | Rust | MCP server with 3 tools: discover, check_budget, pay_and_call |
 | `policy-generator/` | Python | Rule-based policy generator (p95 × 1.5 caps from tx logs) |
 | `demo/` | Python + HTML | Pitch console: HTTP API, SQLite store, in-memory policy engine |
@@ -165,6 +169,7 @@ python policy-generator/generate_policy.py transaction_log.json > policy.json
 3. DEPLOY    →  ./scripts/deploy_testnet.sh
                  Simulates a tx log, generates PolicySpec, deploys the account
                  and spend-policy instances, initialize, set_spend_policy,
+                 optional set_agent_guard (if AGENTGUARD_CONTRACT_ID is set),
                  apply_policy. Prints MCP env and stellar event commands.
 
 4. DISCOVER  →  Agent calls discover_resources("weather") via MCP
@@ -179,7 +184,8 @@ python policy-generator/generate_policy.py transaction_log.json > policy.json
 
 7. AUDIT     →  stellar events --id <CONTRACT>  (auth_decision)
                  Approved decisions persist on-chain; denied auths fail the tx
-                 with OverBudget / RateLimited / InvalidContext.
+                 with OverBudget / RateLimited / InvalidContext /
+                 AgentGuardExecutionDenied.
 ```
 
 Steps 1–2 and 4–6 can be shown in one take via `python demo/server.py`
@@ -192,7 +198,7 @@ AgentPay/
 ├── Cargo.toml
 ├── pyproject.toml                    # ruff + pytest
 ├── .github/workflows/ci.yml
-├── contracts/agent-account/          # Soroban smart account
+├── contracts/agent-account/          # Soroban smart account (+ AgentGuard client)
 ├── mcp-server/                       # MCP tools over stdio
 ├── policy-generator/                 # PolicySpec from tx logs
 ├── demo/                             # Pitch console
@@ -224,11 +230,11 @@ AgentPay/
 
 ## Current Status
 
-- Smart account: initialize, set_spend_policy, apply_policy (per-vendor `CallContract` rules + spend/rate policy on `__check_auth`), get_remaining_budget, rolling window, events
+- Smart account: initialize, set_spend_policy, apply_policy (per-vendor `CallContract` rules + spend/rate policy on `__check_auth`), optional `set_agent_guard` (`verify_agent` before spend), get_remaining_budget, rolling window, events
 - MCP: discover; check_budget from on-chain account when `ACCOUNT_CONTRACT_ID` is set (else `AGENTPAY_STATE`); pay_and_call submits via Stellar CLI + polls `getTransaction` (no stub hash on the live path); bounded retry on `TransientError` only
 - Policy generator: p95 × 1.5 caps + allowlist; empty logs rejected
 - Demo console: SQLite persistence, operator/reader keys, stepped pitch API, per-vendor budget, deterministic tx hashes, tx-log export, polished operator UI (responsive, a11y, toasts, loading, empty/reset)
-- Deploy: `./scripts/deploy_testnet.sh` runs simulate → generate → deploy two instances → initialize → apply_policy
+- Deploy: `./scripts/deploy_testnet.sh` runs simulate → generate → deploy two instances → initialize → apply_policy; links AgentGuard when `AGENTGUARD_CONTRACT_ID` is set (`AGENTGUARD_REQUIRED_ROLE`, default Basic)
 - CI: local `scripts/ci.sh` and GitHub Actions (fmt, clippy, cargo test, ruff, pytest)
 
 **Out of scope for this MVP (follow-up)**

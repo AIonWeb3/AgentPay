@@ -8,6 +8,7 @@
 
 #![no_std]
 
+pub mod agent_guard;
 pub mod policy_spec;
 mod spend;
 
@@ -24,6 +25,7 @@ use stellar_accounts::smart_account::{
     add_context_rule, do_check_auth, AuthPayload, ContextRuleType, Signer, SmartAccountError,
 };
 
+use crate::agent_guard::Role;
 use crate::policy_spec::{AllowedContract, PolicySpec};
 use crate::spend::SpendPolicyParams;
 
@@ -33,6 +35,8 @@ pub enum DataKey {
     Admin,
     RuleCount,
     SpendPolicy,
+    AgentGuard,
+    RequiredRole,
 }
 
 #[contracterror]
@@ -46,6 +50,8 @@ pub enum AgentAccountError {
     OverBudget = 5,
     RateLimited = 6,
     InvalidContext = 7,
+    /// AgentGuard `verify_agent` returned false (or is required and denied).
+    AgentGuardExecutionDenied = 8,
 }
 
 #[contractevent]
@@ -124,6 +130,33 @@ impl AgentAccountContract {
         admin.require_auth();
         env.storage().instance().set(&DataKey::SpendPolicy, &policy);
         Ok(())
+    }
+
+    /// Bind the AgentGuard registry used as a pre-flight check in `__check_auth`.
+    pub fn set_agent_guard(
+        env: Env,
+        admin: Address,
+        guard: Address,
+        required_role: Role,
+    ) -> Result<(), AgentAccountError> {
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(AgentAccountError::NotInitialized)?;
+        if admin != stored_admin {
+            return Err(AgentAccountError::Unauthorized);
+        }
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::AgentGuard, &guard);
+        env.storage()
+            .instance()
+            .set(&DataKey::RequiredRole, &required_role);
+        Ok(())
+    }
+
+    pub fn get_agent_guard(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::AgentGuard)
     }
 
     pub fn apply_policy(
@@ -261,6 +294,52 @@ impl AgentAccountContract {
     }
 }
 
+/// Read-only AgentGuard check before spend-policy effects in `do_check_auth`.
+fn require_agent_guard(env: &Env, auth_contexts: &Vec<Context>) {
+    let Some(guard) = env
+        .storage()
+        .instance()
+        .get::<_, Address>(&DataKey::AgentGuard)
+    else {
+        return;
+    };
+    let required_role: Role = env
+        .storage()
+        .instance()
+        .get(&DataKey::RequiredRole)
+        .unwrap_or(Role::Basic);
+    let agent_id = env.current_contract_address();
+    if !agent_guard::verify_agent(env, &guard, &agent_id, &required_role) {
+        let (amount, contract_id, method) = first_call_meta(env, auth_contexts);
+        emit_auth_decision(
+            env,
+            Symbol::new(env, "denied"),
+            Symbol::new(env, "guard_denied"),
+            amount,
+            0,
+            contract_id,
+            method,
+        );
+        panic_with_error!(env, AgentAccountError::AgentGuardExecutionDenied);
+    }
+}
+
+fn first_call_meta(
+    env: &Env,
+    auth_contexts: &Vec<Context>,
+) -> (i128, Option<Address>, Option<Symbol>) {
+    for i in 0..auth_contexts.len() {
+        if let Context::Contract(cc) = auth_contexts.get(i).unwrap() {
+            return (
+                spend::extract_amount(env, &cc.args),
+                Some(cc.contract.clone()),
+                Some(cc.fn_name.clone()),
+            );
+        }
+    }
+    (0, None, None)
+}
+
 #[contractimpl]
 impl CustomAccountInterface for AgentAccountContract {
     type Error = SmartAccountError;
@@ -273,6 +352,7 @@ impl CustomAccountInterface for AgentAccountContract {
         signature: AuthPayload,
         auth_contexts: Vec<Context>,
     ) -> Result<(), SmartAccountError> {
+        require_agent_guard(&env, &auth_contexts);
         if signature.context_rule_ids.len() != auth_contexts.len() {
             emit_auth_decision(
                 &env,

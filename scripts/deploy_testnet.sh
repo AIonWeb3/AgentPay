@@ -126,6 +126,20 @@ stellar contract invoke \
     --policy "$POLICY_ID"
 echo "      Initialized ✓"
 
+if [ -n "${AGENTGUARD_CONTRACT_ID:-}" ]; then
+    echo "[5b/7] set_agent_guard (AGENTGUARD_CONTRACT_ID)..."
+    stellar contract invoke \
+        --id "$CONTRACT_ID" \
+        --source "$IDENTITY" \
+        --network "$NETWORK" \
+        -- \
+        set_agent_guard \
+        --admin "$ADDRESS" \
+        --guard "$AGENTGUARD_CONTRACT_ID" \
+        --required_role "${AGENTGUARD_REQUIRED_ROLE:-Basic}"
+    echo "      AgentGuard linked ✓"
+fi
+
 # -----------------------------------------------------------------------
 # 6. apply_policy
 # -----------------------------------------------------------------------
@@ -152,6 +166,7 @@ echo "  Identity:    $IDENTITY"
 echo "  Address:     $ADDRESS"
 echo "  Contract ID: $CONTRACT_ID"
 echo "  Policy ID:   $POLICY_ID"
+echo "  AgentGuard:  ${AGENTGUARD_CONTRACT_ID:-<unset>}"
 echo "  Admin:       $ADMIN"
 echo "  Tx log:      $TX_LOG"
 echo "  Policy JSON: $POLICY_JSON"
@@ -179,4 +194,4 @@ echo "Read auth_decision / policy_applied events:"
 echo "  stellar events --id $CONTRACT_ID --network $NETWORK"
 echo "  stellar events --id $POLICY_ID --network $NETWORK"
 echo ""
-echo "Over-cap and non-allowlisted calls fail in __check_auth (contract errors OverBudget=5, RateLimited=6, InvalidContext=7)."
+echo "Over-cap and non-allowlisted calls fail in __check_auth (contract errors OverBudget=5, RateLimited=6, InvalidContext=7, AgentGuardExecutionDenied=8)."
