@@ -50,6 +50,11 @@ button {
 }
 button.primary { background: var(--mint); color: #071018; border-color: var(--mint); font-weight: 600; }
 button:disabled { opacity: 0.55; cursor: wait; }
+button:hover { filter: brightness(1.08); }
+button:focus-visible, input:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
 button.busy::after {
   content: " …";
   font-weight: 700;

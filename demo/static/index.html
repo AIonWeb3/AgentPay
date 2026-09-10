@@ -24,8 +24,8 @@
       <div class="top-meta">
         <span class="pill live">Soroban testnet simulation</span>
         <span class="pill" id="ledger">ledger —</span>
-        <button id="reset">Reset</button>
-        <button id="pitch" class="primary">Run pitch demo</button>
+        <button id="reset" aria-label="Reset demo state">Reset</button>
+        <button id="pitch" class="primary" aria-label="Run the pitch demo">Run pitch demo</button>
       </div>
     </header>
 
@@ -43,15 +43,15 @@
             Query
             <input id="query" value="weather" />
           </label>
-          <button id="discover">discover_resources</button>
-          <button id="budget-btn">check_budget</button>
+          <button id="discover" aria-label="Discover paid resources">discover_resources</button>
+          <button id="budget-btn" aria-label="Check remaining budget">check_budget</button>
         </div>
         <div class="resource-actions">
           <button data-pay="weather-oracle">pay_and_call weather</button>
           <button data-pay="price-feed">pay_and_call price</button>
           <button data-pay="ai-inference">pay_and_call inference</button>
         </div>
-        <div class="console" id="console"></div>
+        <div class="console" id="console" aria-live="polite" aria-label="MCP tool output"></div>
       </section>
 
       <section class="panel">
