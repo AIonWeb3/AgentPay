@@ -182,7 +182,10 @@ input {
   font-size: 13px;
 }
 .toast.deny-banner { background: #3a1520; }
+.denied { color: var(--deny); }
 .approved { color: var(--ok); }
+.audit .row { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.audit time { color: var(--muted); font-size: 11px; }
 
 @media (max-width: 900px) {
   .grid { grid-template-columns: 1fr; }
