@@ -1,5 +1,7 @@
 # AgentPay
 
+[![CI](https://github.com/AIonWeb3/AgentPay/actions/workflows/ci.yml/badge.svg)](https://github.com/AIonWeb3/AgentPay/actions/workflows/ci.yml)
+
 > An AI agent discovers, authorizes, pays for, and calls on-chain resources — with
 > spending policies generated from data and enforced by a Soroban smart account.
 
@@ -19,16 +21,30 @@ policy → MCP discover → budget check → approved pay → policy deny → pe
 scope.
 
 ```bash
+./scripts/run_pitch.sh
+# or:
 pip install -r demo/requirements.txt -r policy-generator/requirements.txt
+python scripts/seed_pitch.py
 python demo/server.py
 ```
 
 Open [http://127.0.0.1:8080](http://127.0.0.1:8080), go fullscreen, click **Run pitch demo**.
 
-The console uses the same policy generator and registry as the rest of the repo.
-Enforcement matches the smart account: allowlist, spend cap, and rate limit.
-This is a local simulation suitable for recording; live testnet wiring is still
-a follow-up.
+**Simulated vs on-chain:** the console and MCP tools enforce the same allowlist,
+spend cap, and rate-limit rules as `contracts/agent-account`. Payments use
+deterministic local tx hashes. Live Soroban RPC submit is not required for a
+client pitch.
+
+Copy `.env.example` if you change keys (`DEMO_API_KEY`, `DEMO_READ_KEY`,
+`DATABASE_URL`, `AGENTPAY_STATE`).
+
+## Local CI
+
+```bash
+./scripts/ci.sh
+```
+
+Gates: `cargo fmt`, `clippy -p mcp-server`, `cargo test --workspace`, `ruff`, `pytest`.
 
 ## Architecture
 
@@ -175,16 +191,15 @@ AgentPay/
 ## Current Status
 
 - Smart account: initialize, apply_policy, remaining budget, record_spend, rolling window, per-vendor scope, rate limits (unit tests)
-- MCP: `discover_resources`, `check_budget`, and `pay_and_call` accept arguments; pay path still uses stub Soroban RPC
-- Policy generator: p95 × 1.5 caps + allowlist from transaction logs
-- Demo console: local simulation for pitches and walkthroughs
+- MCP: discover, check_budget from `AGENTPAY_STATE`, pay_and_call with policy checks, bounded retry, structured errors (stub RPC)
+- Policy generator: p95 × 1.5 caps + allowlist; empty logs rejected
+- Demo console: SQLite persistence, operator/reader keys, stepped pitch API, polished operator UI
 
-**Still to do**
+**Out of scope for this MVP (follow-up)**
 
-- Wire MCP tools to live Soroban testnet
-- Deploy SpendingLimitPolicy next to the account
-- Bounded retry on `pay_and_call`
-- Integration tests against testnet
+- Live Soroban RPC submission and funded testnet deploy in CI
+- LLM-based policy generation
+- Integration tests against public testnet
 
 ## License
 
