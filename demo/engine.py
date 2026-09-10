@@ -31,6 +31,7 @@ sys.path.insert(0, str(ROOT / "policy-generator"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from generate_policy import score_transactions  # noqa: E402
+from schema import PolicySpec  # noqa: E402
 from simulate_agent import generate_transaction_log  # noqa: E402
 
 REGISTRY_PATH = ROOT / "registry" / "resources.json"
@@ -210,6 +211,53 @@ class AgentPayEngine:
                 generated_at=spec.generated_at,
             )
         return self.state.policy
+
+    def apply_policy(self, spec_dict: dict[str, Any] | None = None) -> dict[str, Any]:
+        payload = spec_dict or self.state.policy
+        spec = PolicySpec.model_validate(payload)
+        self.state.policy = json.loads(spec.model_dump_json())
+        self.state.period_ledgers = spec.period_ledgers
+        self.state.source_tx_count = spec.source_tx_count
+        self.state.generated_at = spec.generated_at
+        self.state.rules = []
+        if self.conn is not None:
+            clear_rules(self.conn, self.session_id)
+        by_contract = {c.contract_id: c for c in spec.allowed_contracts}
+        for i, resource in enumerate(self.resources, start=1):
+            contract = by_contract.get(resource["contract_id"])
+            if not contract:
+                continue
+            rule = RuleState(
+                rule_id=i,
+                resource_id=resource["id"],
+                contract_id=resource["contract_id"],
+                method=resource["method"],
+                name=resource["name"],
+                price=int(resource["price"]),
+                max_spend_per_period=contract.max_spend_per_period,
+                max_calls_per_period=contract.max_calls_per_period,
+                last_reset=self.state.ledger,
+            )
+            self.state.rules.append(rule)
+            if self.conn is not None:
+                insert_rule(
+                    self.conn,
+                    rule_id=rule.rule_id,
+                    session_id=self.session_id,
+                    resource_id=rule.resource_id,
+                    contract_id=rule.contract_id,
+                    method=rule.method,
+                    name=rule.name,
+                    price=rule.price,
+                    max_spend_per_period=rule.max_spend_per_period,
+                    max_calls_per_period=rule.max_calls_per_period,
+                    spent=0,
+                    calls=0,
+                    last_reset=rule.last_reset,
+                )
+        self._audit("applied", "policy_installed", "", 0, self.total_remaining())
+        self._persist_session()
+        return self.snapshot()
 
     def snapshot(self) -> dict[str, Any]:
         return {

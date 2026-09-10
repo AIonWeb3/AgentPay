@@ -21,6 +21,10 @@ class DiscoverBody(BaseModel):
     query: str = ""
 
 
+class PolicyBody(BaseModel):
+    spec: dict | None = None
+
+
 class PayBody(BaseModel):
     resource_id: str
     params: str = "{}"
@@ -51,6 +55,11 @@ def budget(_: str = Depends(require_reader)):
         "rule_count": snap["rule_count"],
         "rules": snap["rules"],
     }
+
+
+@app.post("/api/apply-policy")
+def apply_policy(body: PolicyBody, _: str = Depends(require_operator)):
+    return engine.apply_policy(body.spec)
 
 
 @app.post("/api/generate-policy")
