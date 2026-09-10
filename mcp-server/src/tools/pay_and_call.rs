@@ -50,6 +50,37 @@ impl fmt::Display for PayAndCallError {
 
 impl std::error::Error for PayAndCallError {}
 
+impl PayAndCallError {
+    pub fn to_structured_json(&self) -> String {
+        let value = match self {
+            Self::PolicyDenied(reason) => serde_json::json!({
+                "error": { "code": "PolicyDenied", "message": reason }
+            }),
+            Self::InsufficientBudget {
+                required,
+                available,
+            } => serde_json::json!({
+                "error": {
+                    "code": "InsufficientBudget",
+                    "message": self.to_string(),
+                    "required": required,
+                    "available": available
+                }
+            }),
+            Self::ResourceCallFailed(reason) => serde_json::json!({
+                "error": { "code": "ResourceCallFailed", "message": reason }
+            }),
+            Self::ResourceNotFound(id) => serde_json::json!({
+                "error": { "code": "ResourceNotFound", "message": id }
+            }),
+            Self::TransientError(msg) => serde_json::json!({
+                "error": { "code": "TransientError", "message": msg }
+            }),
+        };
+        serde_json::to_string_pretty(&value).unwrap_or_else(|_| self.to_string())
+    }
+}
+
 pub const MAX_TRANSIENT_ATTEMPTS: u32 = 3;
 
 pub fn retry_transient<T, F>(mut op: F) -> Result<T, PayAndCallError>
@@ -159,6 +190,13 @@ pub fn pay_and_call_with_window(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_structured_json_not_found() {
+        let json = PayAndCallError::ResourceNotFound("x".into()).to_structured_json();
+        assert!(json.contains("ResourceNotFound"));
+        assert!(json.contains("\"code\""));
+    }
 
     #[test]
     fn test_pay_and_call_stub_success() {

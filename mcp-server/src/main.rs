@@ -82,7 +82,7 @@ impl AgentPayServer {
         let text = match tools::pay_and_call::pay_and_call(&args.resource_id, &args.params) {
             Ok(result) => serde_json::to_string_pretty(&result)
                 .unwrap_or_else(|e| format!("{{\"error\": \"Failed to serialize result: {e}\"}}")),
-            Err(e) => format!("{{\"error\": \"{e}\"}}"),
+            Err(e) => e.to_structured_json(),
         };
         Ok(text)
     }
