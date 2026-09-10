@@ -30,13 +30,30 @@ python demo/server.py
 
 Open [http://127.0.0.1:8080](http://127.0.0.1:8080), go fullscreen, click **Run pitch demo**.
 
-**Simulated vs on-chain:** the console and MCP tools enforce the same allowlist,
-spend cap, and rate-limit rules as `contracts/agent-account`. Payments use
-deterministic local tx hashes. Live Soroban RPC submit is not required for a
-client pitch.
+The console is a FastAPI app plus a vanilla HTML/CSS/JS UI. It persists session,
+policy, rules, audit events, and the marketplace registry in SQLite. Mutating
+routes require `DEMO_API_KEY`; read routes accept that key or `DEMO_READ_KEY`.
+
+Operator UI covers:
+
+- Stepped pitch API (`POST /api/pitch/step`) with a live narration strip
+- MCP-style tools: discover, check_budget, pay_and_call (weather / price / inference)
+- Policy and marketplace cards, per-vendor remaining spend and call budget
+- `auth_decision` audit timeline and loading / error toasts
+- Empty and reset confirmation states, keyboard and screen-reader labels
+- Responsive layout; export of the simulation log (`GET /api/tx-log`)
+
+**Simulated vs on-chain:** the console enforces the same allowlist, spend cap,
+and rate-limit rules as `contracts/agent-account`, with deterministic local tx
+hashes. The MCP server talks to live Soroban RPC / `stellar contract invoke`
+when `ACCOUNT_CONTRACT_ID` and `STELLAR_IDENTITY` are set (see `.env.example`).
+Without those, `check_budget` falls back to `AGENTPAY_STATE` and `pay_and_call`
+returns a `local_` hash — never a stub success against a configured contract.
 
 Copy `.env.example` if you change keys (`DEMO_API_KEY`, `DEMO_READ_KEY`,
-`DATABASE_URL`, `AGENTPAY_STATE`).
+`DATABASE_URL`). The demo store uses `DATABASE_URL` (default
+`sqlite:///demo/data/agentpay.db`). The MCP server can read a JSON budget
+snapshot from `AGENTPAY_STATE` when set.
 
 ## Local CI
 
@@ -45,6 +62,12 @@ Copy `.env.example` if you change keys (`DEMO_API_KEY`, `DEMO_READ_KEY`,
 ```
 
 Gates: `cargo fmt`, `clippy -p mcp-server`, `cargo test --workspace`, `ruff`, `pytest`.
+
+GitHub Actions (`.github/workflows/ci.yml`) runs the same Rust and Python jobs
+on every push and pull request.
+
+Python tests live in `tests/`, `policy-generator/`, and `demo/tests/` (engine,
+auth, persistence, pitch API, UI smoke, accessibility, and full agent-pay flow).
 
 ## Architecture
 
@@ -59,7 +82,7 @@ Gates: `cargo fmt`, `clippy -p mcp-server`, `cargo test --workspace`, `ruff`, `p
 │                               │  • pay_and_call(id, params)   │ │
 │                               └──────────┬───────────────────┘ │
 └──────────────────────────────────────────┼───────────────────┘
-                                           │ Soroban RPC
+                                           │ Soroban RPC (when ACCOUNT_CONTRACT_ID is set)
                                            ▼
                               ┌────────────────────────┐
                               │  Stellar Testnet       │
@@ -81,7 +104,8 @@ Gates: `cargo fmt`, `clippy -p mcp-server`, `cargo test --workspace`, `ruff`, `p
 │  (observed data)      (p95 caps + allowlist)   (apply on-chain) │
 │                                                                  │
 │  simulate_agent.py ──► synthetic log for demos                  │
-│  demo/server.py      ──► visual operator console                   │
+│  seed_pitch.py       ──► deterministic 75-tx seed + policy JSON │
+│  demo/server.py      ──► visual operator console                │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -91,10 +115,11 @@ Gates: `cargo fmt`, `clippy -p mcp-server`, `cargo test --workspace`, `ruff`, `p
 |-----------|----------|-------------|
 | `contracts/agent-account/` | Rust (Soroban) | Smart account with context rules, spending limits, audit events |
 | `mcp-server/` | Rust | MCP server with 3 tools: discover, check_budget, pay_and_call |
-| `policy-generator/` | Python | Rule-based policy generator (p95 caps from tx logs) |
-| `demo/` | Python + HTML | Pitch console: HTTP API + in-memory policy engine |
-| `registry/` | JSON | Seed data for paid resource discovery |
-| `scripts/` | Bash/Python | Testnet deployment + synthetic data generation |
+| `policy-generator/` | Python | Rule-based policy generator (p95 × 1.5 caps from tx logs) |
+| `demo/` | Python + HTML | Pitch console: HTTP API, SQLite store, in-memory policy engine |
+| `registry/` | JSON | Seed data for paid resource discovery (3 vendors) |
+| `scripts/` | Bash/Python | Pitch seed, local CI, testnet deploy, synthetic tx logs |
+| `tests/` | Python | Repo-level checks (CI config, env, README, rustfmt) |
 
 ## Quick Start
 
@@ -102,7 +127,7 @@ Gates: `cargo fmt`, `clippy -p mcp-server`, `cargo test --workspace`, `ruff`, `p
 
 - [Rust](https://rustup.rs/) 1.84+ with `wasm32v1-none` target
 - [Stellar CLI](https://developers.stellar.org/docs/tools/developer-tools/cli/install-cli)
-- Python 3.10+
+- Python 3.10+ (CI uses 3.12)
 
 ### 1. Build & Test the Smart Account
 
@@ -138,45 +163,54 @@ python policy-generator/generate_policy.py transaction_log.json > policy.json
                  from the p95 of observed amounts.
 
 3. DEPLOY    →  ./scripts/deploy_testnet.sh
-                 Deploys the smart account to Stellar testnet with a
-                 throwaway funded identity.
+                 Simulates a tx log, generates PolicySpec, deploys the account
+                 and spend-policy instances, initialize, set_spend_policy,
+                 apply_policy. Prints MCP env and stellar event commands.
 
-4. APPLY     →  stellar contract invoke --id <CONTRACT> ... -- apply_policy ...
-                 Installs the generated policy as context rules + spending
-                 limits on the smart account.
-
-5. DISCOVER  →  Agent calls discover_resources("weather") via MCP
+4. DISCOVER  →  Agent calls discover_resources("weather") via MCP
                  Gets back matching resources with pricing info.
 
-6. CHECK     →  Agent calls check_budget() via MCP
+5. CHECK     →  Agent calls check_budget() via MCP
                  Sees remaining allowance under current policy.
 
-7. PAY+CALL  →  Agent calls pay_and_call("weather-oracle", "{}") via MCP
+6. PAY+CALL  →  Agent calls pay_and_call("weather-oracle", "{}") via MCP
                  Transaction authorized by smart account, spend recorded,
-                 resource invoked, response returned.
+                 resource invoked, real tx hash when ACCOUNT_CONTRACT_ID is set.
 
-8. AUDIT     →  Check auth_decision events
-                 Every approve/deny is logged with amounts for review.
+7. AUDIT     →  stellar events --id <CONTRACT>  (auth_decision)
+                 Approved decisions persist on-chain; denied auths fail the tx
+                 with OverBudget / RateLimited / InvalidContext.
 ```
 
-Steps 1–2 and 5–8 can be shown in one take via `python demo/server.py`.
+Steps 1–2 and 4–6 can be shown in one take via `python demo/server.py`
+(or `./scripts/run_pitch.sh`, which seeds `demo/data/` first).
 
 ## Project Structure
 
 ```
 AgentPay/
 ├── Cargo.toml
+├── pyproject.toml                    # ruff + pytest
+├── .github/workflows/ci.yml
 ├── contracts/agent-account/          # Soroban smart account
 ├── mcp-server/                       # MCP tools over stdio
 ├── policy-generator/                 # PolicySpec from tx logs
-├── demo/                             # Pitch console (FastAPI + static UI)
-│   ├── server.py
-│   ├── engine.py                     # In-memory enforcement
-│   └── static/
+├── demo/                             # Pitch console
+│   ├── server.py                     # FastAPI routes
+│   ├── engine.py                     # Enforcement mirroring the contract
+│   ├── store.py / schema.sql         # SQLite persistence
+│   ├── auth.py                       # Operator vs reader keys
+│   ├── policy_eval.py / txhash.py
+│   ├── static/                       # Operator UI
+│   └── tests/                        # API, engine, and UI smoke tests
 ├── registry/resources.json
 ├── scripts/
+│   ├── run_pitch.sh
+│   ├── seed_pitch.py
+│   ├── ci.sh
 │   ├── deploy_testnet.sh
 │   └── simulate_agent.py
+├── tests/
 └── README.md
 ```
 
@@ -186,20 +220,22 @@ AgentPay/
 - **Smart Account Framework**: OpenZeppelin `stellar-accounts` 0.7.x
 - **MCP Server**: `rmcp` 3.1.x, stdio transport
 - **Policy Generator**: Python 3.10+, `pydantic` 2.x
-- **Pitch console**: FastAPI + vanilla HTML/CSS/JS
+- **Pitch console**: FastAPI + SQLite + vanilla HTML/CSS/JS
 
 ## Current Status
 
-- Smart account: initialize, apply_policy, remaining budget, record_spend, rolling window, per-vendor scope, rate limits (unit tests)
-- MCP: discover, check_budget from `AGENTPAY_STATE`, pay_and_call with policy checks, bounded retry, structured errors (stub RPC)
+- Smart account: initialize, set_spend_policy, apply_policy (per-vendor `CallContract` rules + spend/rate policy on `__check_auth`), get_remaining_budget, rolling window, events
+- MCP: discover; check_budget from on-chain account when `ACCOUNT_CONTRACT_ID` is set (else `AGENTPAY_STATE`); pay_and_call submits via Stellar CLI + polls `getTransaction` (no stub hash on the live path); bounded retry on `TransientError` only
 - Policy generator: p95 × 1.5 caps + allowlist; empty logs rejected
-- Demo console: SQLite persistence, operator/reader keys, stepped pitch API, polished operator UI
+- Demo console: SQLite persistence, operator/reader keys, stepped pitch API, per-vendor budget, deterministic tx hashes, tx-log export, polished operator UI (responsive, a11y, toasts, loading, empty/reset)
+- Deploy: `./scripts/deploy_testnet.sh` runs simulate → generate → deploy two instances → initialize → apply_policy
+- CI: local `scripts/ci.sh` and GitHub Actions (fmt, clippy, cargo test, ruff, pytest)
 
 **Out of scope for this MVP (follow-up)**
 
-- Live Soroban RPC submission and funded testnet deploy in CI
+- Funded testnet deploy inside CI
 - LLM-based policy generation
-- Integration tests against public testnet
+- Integration tests against public testnet in CI
 
 ## License
 

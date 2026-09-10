@@ -134,20 +134,45 @@ pub struct PayAndCallResult {
 /// Returns typed errors for policy denial, insufficient budget,
 /// resource not found, and resource call failure.
 use crate::policy::{PolicyOutcome, evaluate_call};
+use crate::soroban_client::{self, SorobanConfig};
 
 /// Default per-vendor window used when no AGENTPAY_STATE is present.
 fn default_window() -> (i128, u32, i128, u32) {
-    // spent, calls, max_spend, max_calls
     (0, 0, 10_000_000, 10_000)
 }
 
-pub fn pay_and_call(resource_id: &str, params: &str) -> Result<PayAndCallResult, PayAndCallError> {
-    pay_and_call_with_window(resource_id, params, default_window())
+fn local_tx_hash(resource_id: &str, params: &str) -> String {
+    let mut n: u64 = 0xcbf29ce484222325;
+    for b in resource_id.bytes().chain(params.bytes()) {
+        n ^= b as u64;
+        n = n.wrapping_mul(0x100000001b3);
+    }
+    format!("local_{n:016x}")
 }
 
+pub fn pay_and_call(resource_id: &str, params: &str) -> Result<PayAndCallResult, PayAndCallError> {
+    pay_and_call_with_config(
+        resource_id,
+        params,
+        &SorobanConfig::from_env(),
+        default_window(),
+    )
+}
+
+#[allow(dead_code)]
 pub fn pay_and_call_with_window(
     resource_id: &str,
     params: &str,
+    window: (i128, u32, i128, u32),
+) -> Result<PayAndCallResult, PayAndCallError> {
+    pay_and_call_with_config(resource_id, params, &SorobanConfig::from_env(), window)
+}
+
+#[allow(dead_code)]
+pub fn pay_and_call_with_config(
+    resource_id: &str,
+    params: &str,
+    config: &SorobanConfig,
     window: (i128, u32, i128, u32),
 ) -> Result<PayAndCallResult, PayAndCallError> {
     let resources = super::discover::load_registry();
@@ -156,15 +181,19 @@ pub fn pay_and_call_with_window(
         .find(|r| r.id == resource_id)
         .ok_or_else(|| PayAndCallError::ResourceNotFound(resource_id.to_string()))?;
 
+    let amount = resource.price as i128;
+    if config.is_live()
+        && let Ok(remaining) = soroban_client::query_budget(config, config.rule_id)
+        && remaining < amount
+    {
+        return Err(PayAndCallError::InsufficientBudget {
+            required: amount,
+            available: remaining,
+        });
+    }
+
     let (spent, calls, max_spend, max_calls) = window;
-    match evaluate_call(
-        true,
-        resource.price as i128,
-        spent,
-        max_spend,
-        calls,
-        max_calls,
-    ) {
+    match evaluate_call(true, amount, spent, max_spend, calls, max_calls) {
         PolicyOutcome::Denied { reason } => Err(PayAndCallError::PolicyDenied(reason)),
         PolicyOutcome::InsufficientBudget {
             required,
@@ -173,17 +202,45 @@ pub fn pay_and_call_with_window(
             required,
             available,
         }),
-        PolicyOutcome::Allow { remaining: _ } => retry_transient(|| {
-            Ok(PayAndCallResult {
-                tx_hash: "stub_tx_abc123def456".to_string(),
-                ledger: 12345678,
-                amount_spent: resource.price as i128,
-                resource_response: format!(
-                    "{{\"status\": \"ok\", \"resource\": \"{}\", \"params\": {}}}",
-                    resource.name, params
-                ),
-            })
-        }),
+        PolicyOutcome::Allow { remaining: _ } => {
+            if config.is_live() {
+                retry_transient(|| -> Result<PayAndCallResult, PayAndCallError> {
+                    let submitted: (String, u32) = soroban_client::submit_transaction(
+                        config,
+                        &resource.contract_id,
+                        &resource.method,
+                        amount,
+                    )?;
+                    if submitted.0.starts_with("stub_") {
+                        return Err(PayAndCallError::TransientError(
+                            "refusing stub hash on live contract path".into(),
+                        ));
+                    }
+                    let resource_response = soroban_client::call_resource(
+                        config,
+                        &resource.contract_id,
+                        &resource.method,
+                        params,
+                    )?;
+                    Ok(PayAndCallResult {
+                        tx_hash: submitted.0,
+                        ledger: submitted.1,
+                        amount_spent: amount,
+                        resource_response,
+                    })
+                })
+            } else {
+                Ok(PayAndCallResult {
+                    tx_hash: local_tx_hash(resource_id, params),
+                    ledger: 0,
+                    amount_spent: amount,
+                    resource_response: format!(
+                        "{{\"status\": \"ok\", \"resource\": \"{}\", \"params\": {}}}",
+                        resource.name, params
+                    ),
+                })
+            }
+        }
     }
 }
 
@@ -199,12 +256,26 @@ mod tests {
     }
 
     #[test]
-    fn test_pay_and_call_stub_success() {
+    fn test_pay_and_call_local_success() {
         let result = pay_and_call("weather-oracle", "{}");
         assert!(result.is_ok());
         let res = result.unwrap();
         assert_eq!(res.amount_spent, 50);
-        assert!(res.tx_hash.starts_with("stub_"));
+        assert!(res.tx_hash.starts_with("local_"));
+        assert!(!res.tx_hash.contains("stub_tx_abc123"));
+    }
+
+    #[test]
+    fn test_live_path_rejects_empty_hash_via_submit() {
+        let cfg = crate::soroban_client::SorobanConfig {
+            account_contract_id: "CTEST".into(),
+            identity: String::new(),
+            ..crate::soroban_client::SorobanConfig::from_env()
+        };
+        let err =
+            pay_and_call_with_config("weather-oracle", "{}", &cfg, (0, 0, 10_000_000, 10_000))
+                .unwrap_err();
+        assert!(!format!("{err}").contains("stub_tx_abc123"));
     }
 
     #[test]
